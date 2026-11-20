@@ -4,6 +4,14 @@
 
 Built for **Aevum Builder Challenge #1 (QDay)** (`Native AI Assistants` · `Confirmation of Payee` · `Decentralized Payments`).
 
+## Live Demo & Submission Links
+
+- **Live Web App (Vercel):** https://aevum-guard.vercel.app/
+- **Interactive Docs & Execution Flow:** https://aevum-guard.vercel.app/docs
+- **Public Repository (MIT):** https://github.com/muradcift/aevum-guard
+- **Deployed Contract (QDay Aevum Testnet 44005):** [`0x4E5Ed4Dc7E5e525f4D77c2cC2749870De9f6851e`](https://explorer-test.qday.info/address/0x4E5Ed4Dc7E5e525f4D77c2cC2749870De9f6851e)
+- **Initial Testnet Deployment Commit:** [`f234195`](https://github.com/muradcift/aevum-guard/commit/f2341959c54ac632bf8bcdf415943c8502817b29)
+
 ---
 
 ## Problem Statement
@@ -114,6 +122,25 @@ Copy `web/.env.example` to `web/.env.local`, populate `NEXT_PUBLIC_VAULT_LOCAL` 
 pnpm typecheck
 pnpm dev
 ```
+
+### Hosting (Vercel)
+
+The Control Center is deployed to **Vercel** with these project settings:
+
+- **Root Directory:** `web`
+- **Install Command:** `pnpm install --frozen-lockfile`
+
+Configure the following **public** environment variables (all `NEXT_PUBLIC_*` values are safe to expose in the browser bundle):
+
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_NETWORKS=aevum` | Active network selection |
+| `NEXT_PUBLIC_VAULT_AEVUM` | Deployed `AevumGuardVault` address |
+| `NEXT_PUBLIC_DEPLOY_BLOCK_AEVUM` | Vault deploy block for log chunking |
+| `NEXT_PUBLIC_REPO_URL` | Public repository link |
+| `TRUSTED_IP_HEADER=x-vercel-forwarded-for` | Client IP header trusted behind Vercel |
+
+Optional server-side variable: `RELAYER_PRIVATE_KEY` (enables gasless relay endpoints; keep it out of any `NEXT_PUBLIC_*` name).
 
 ---
 

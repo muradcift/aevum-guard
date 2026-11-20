@@ -83,24 +83,82 @@ export default function DocsPage() {
 
           <section id="architecture">
             <h2>2. On-Chain Execution Flow</h2>
-            <Code>{`
-Owner Wallet ──(EIP-3009 / Approve)──▶ AevumGuardVault (tUSD8 Treasury)
-                                             │
-AI Agent ──(EIP-712 SpendIntent)──▶ /api/relay-spend ──▶ executeSpendWithSignature()
-                                             │
-        ┌────────────── Checks ──────────────┴──────────────┐
-        │ 1. !paused & mandate active & !expired            │
-        │ 2. Confirmation of Payee allowlist check          │
-        │ 3. Total lifetime budget hard cap                 │
-        └──────────────────────┬────────────────────────────┘
-                               │
-           ┌───────────────────┴───────────────────┐
-  Within Per-Tx & Daily                    Over Per-Tx or Daily
-           │                                       │
-           ▼                                       ▼
-   Instant tUSD8 Transfer                 Escrowed SpendRequest (24h TTL)
-   (SpendExecuted event)                  Owner: Approve or Reject/Refund
-            `}</Code>
+            <div
+              className="flow"
+              role="img"
+              aria-label="Execution flow: Owner Wallet funds AevumGuardVault via EIP-3009 or Approve. AI Agent signs an EIP-712 SpendIntent to /api/relay-spend, which calls executeSpendWithSignature. On-chain guardrail checks run, then spends within per-transaction and daily limits transfer instantly, while over-limit spends are escrowed as a SpendRequest with a 24 hour TTL for the owner to approve or reject and refund."
+            >
+              <div className="flow-row">
+                <div className="flow-node">
+                  <span className="flow-node-title">Owner Wallet</span>
+                </div>
+                <div className="flow-edge">
+                  <span className="flow-edge-label">EIP-3009 / Approve</span>
+                  <span className="flow-edge-line" aria-hidden="true" />
+                </div>
+                <div className="flow-node flow-node-hl">
+                  <span className="flow-node-title">AevumGuardVault</span>
+                  <span className="flow-node-sub">(tUSD8 Treasury)</span>
+                </div>
+              </div>
+
+              <div className="flow-vconn" aria-hidden="true">
+                <span className="flow-vline" />
+              </div>
+
+              <div className="flow-row">
+                <div className="flow-node">
+                  <span className="flow-node-title">AI Agent</span>
+                </div>
+                <div className="flow-edge">
+                  <span className="flow-edge-label">EIP-712 SpendIntent</span>
+                  <span className="flow-edge-line" aria-hidden="true" />
+                </div>
+                <div className="flow-node">
+                  <span className="flow-node-title">/api/relay-spend</span>
+                </div>
+                <div className="flow-edge">
+                  <span className="flow-edge-line" aria-hidden="true" />
+                </div>
+                <div className="flow-node">
+                  <span className="flow-node-title">executeSpendWithSignature()</span>
+                </div>
+              </div>
+
+              <div className="flow-vconn" aria-hidden="true">
+                <span className="flow-vline" />
+              </div>
+
+              <div className="flow-guard">
+                <p className="flow-guard-title">On-Chain Guardrail Checks</p>
+                <ol className="flow-checks">
+                  <li>!paused &amp; mandate active &amp; !expired</li>
+                  <li>Confirmation of Payee allowlist check</li>
+                  <li>Total lifetime budget hard cap</li>
+                </ol>
+              </div>
+
+              <div className="flow-split">
+                <div className="flow-branch">
+                  <div className="flow-vdrop" aria-hidden="true" />
+                  <span className="flow-pill flow-pill-good">Within Per-Tx &amp; Daily</span>
+                  <div className="flow-varrow" aria-hidden="true" />
+                  <div className="flow-result flow-result-good">
+                    <span className="flow-result-title">Instant tUSD8 Transfer</span>
+                    <span className="flow-result-sub">SpendExecuted event</span>
+                  </div>
+                </div>
+                <div className="flow-branch">
+                  <div className="flow-vdrop" aria-hidden="true" />
+                  <span className="flow-pill flow-pill-warn">Over Per-Tx or Daily</span>
+                  <div className="flow-varrow" aria-hidden="true" />
+                  <div className="flow-result flow-result-warn">
+                    <span className="flow-result-title">Escrowed SpendRequest (24h TTL)</span>
+                    <span className="flow-result-sub">Owner: Approve or Reject/Refund</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </section>
 
           <section id="aevum">
