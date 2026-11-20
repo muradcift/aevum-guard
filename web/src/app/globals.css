@@ -274,3 +274,50 @@ dl.faq dd { margin: 0; color: var(--text-2); line-height: 1.65; }
   content: ""; position: absolute; left: 0; top: 0.3em; width: 14px; height: 14px;
   border: 1.5px solid var(--text-faint); border-radius: 4px;
 }
+
+/* ---------- AevumGuard control center ---------- */
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+.metric-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
+.metric-label { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.metric-value { font-family: var(--font-display); font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.metric-sub { font-size: 13px; color: var(--text-faint); font-family: var(--font-mono); overflow-wrap: anywhere; }
+
+.dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 20px; align-items: start; }
+@media (max-width: 560px) { .dashboard-grid { grid-template-columns: 1fr; } }
+
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.field-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; color: var(--text-2); }
+select.field, textarea.field {
+  font: inherit; font-family: var(--font-mono); font-size: 14px; color: var(--text);
+  background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  padding: 10px 12px; min-height: 44px; width: 100%;
+}
+
+.btn.danger { background: #c9343b; color: #fff; }
+.btn.danger:hover { filter: brightness(1.1); }
+.btn.good { background: #1d8a55; color: #fff; }
+
+.status-pill.bad { background: var(--bad-chip); color: var(--bad); }
+.status-pill.info { background: var(--accent-soft); color: var(--accent-text); }
+
+.scenario-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; }
+.scenario-btn {
+  text-align: left; padding: 10px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text);
+  cursor: pointer; display: flex; flex-direction: column; gap: 4px; font: inherit;
+}
+.scenario-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+.scenario-btn strong { font-size: 13px; }
+.scenario-btn span { font-size: 12px; color: var(--text-muted); }
+
+.payee-item {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--bg);
+}
+.req-card {
+  padding: 14px 16px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong);
+  background: var(--bg); display: flex; flex-direction: column; gap: 8px;
+}
+.check-inline { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2); cursor: pointer; }
+

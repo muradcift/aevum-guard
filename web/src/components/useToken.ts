@@ -1,27 +1,29 @@
 "use client";
 
-import { erc20Abi, TUSD8_ADDRESS } from "@aevum-kit/aevum";
-import { checkoutAbi } from "@aevum-kit/aevum";
+import { aevumGuardAbi, erc20Abi, TUSD8_ADDRESS } from "@aevum-kit/aevum";
 import type { Address } from "viem";
 import { useReadContract, useReadContracts } from "wagmi";
 import { useNetwork } from "@/lib/network";
 
 /**
- * The payment token. Read from Checkout.token() when a Checkout is configured (works for the
- * local MockUSD8 too); otherwise tUSD8 on Aevum.
+ * Payment token used by AevumGuardVault: reads `vault.token()` when configured
+ * (supports MockUSD8 on local anvil too), otherwise falls back to Aevum tUSD8.
  */
 export function useToken() {
   const { net } = useNetwork();
   const appChain = net.chain;
-  const checkoutAddress = net.checkout;
-  const fromCheckout = useReadContract({
-    address: checkoutAddress,
-    abi: checkoutAbi,
+  const vaultAddress = net.vault;
+
+  const fromVault = useReadContract({
+    address: vaultAddress,
+    abi: aevumGuardAbi,
     functionName: "token",
     chainId: appChain.id,
-    query: { enabled: Boolean(checkoutAddress) },
+    query: { enabled: Boolean(vaultAddress) },
   });
-  const address: Address | undefined = fromCheckout.data ?? (net.key === "local" ? undefined : TUSD8_ADDRESS);
+
+  const address: Address | undefined = fromVault.data ?? (net.key === "local" ? undefined : TUSD8_ADDRESS);
+
   const meta = useReadContracts({
     contracts: address
       ? [
@@ -30,9 +32,9 @@ export function useToken() {
         ]
       : [],
     query: { enabled: Boolean(address) },
-
   });
+
   const decimals = (meta.data?.[0]?.result as number | undefined) ?? 6;
   const symbol = (meta.data?.[1]?.result as string | undefined) ?? "tUSD8";
-  return { address, decimals, symbol, isLoading: fromCheckout.isLoading || meta.isLoading };
+  return { address, decimals, symbol, isLoading: fromVault.isLoading || meta.isLoading };
 }

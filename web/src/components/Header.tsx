@@ -9,10 +9,8 @@ import { GitHubIcon } from "./Icons";
 import { useNetwork } from "@/lib/network";
 
 const links = [
-  { href: "/", label: "Setup" },
-  { href: "/checkout", label: "Checkout" },
-  { href: "/activity", label: "Activity" },
-  { href: "/docs", label: "Docs" },
+  { href: "/", label: "Control Center" },
+  { href: "/docs", label: "Architecture & Docs" },
 ];
 
 export function Header() {
@@ -27,7 +25,7 @@ export function Header() {
         <div className="shell">
           <Link href="/" className="brand">
             <span className="brand-mark" aria-hidden="true" />
-            <span className="brand-name">Aevum Starter Kit</span>
+            <span className="brand-name">AevumGuard</span>
           </Link>
           <nav className="nav" aria-label="Main">
             {links.map((l) => {
@@ -70,8 +68,7 @@ export function Header() {
         <div className="banner info" role="status">
           <div className="shell">
             <span>
-              Confirm the switch to <strong>{switchingTo.chain.name}</strong> in your wallet. If no window opened, click the wallet icon in your
-              browser toolbar.
+              Confirm switching to <strong>{switchingTo.chain.name}</strong> in your wallet.
             </span>
           </div>
         </div>
@@ -87,7 +84,7 @@ export function Header() {
         <div className="banner" role="alert">
           <div className="shell">
             <span>
-              Your wallet is on another network. This app is set to <strong>{net.chain.name} ({net.chain.id})</strong>.
+              Your wallet is on another chain. App is set to <strong>{net.chain.name} ({net.chain.id})</strong>.
             </span>
             <button type="button" className="btn warn small" onClick={() => select(net.key)}>
               Switch network

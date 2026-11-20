@@ -1,4 +1,10 @@
 import { parseAbi, type Address } from "viem";
+export { aevumGuardAbi } from "./aevumGuardAbi";
+
+/** EIP-712 domain of AevumGuardVault. */
+export function aevumGuardDomain(chainId: number, verifyingContract: Address) {
+  return { name: "AevumGuardVault", version: "1", chainId, verifyingContract } as const;
+}
 
 /** tUSD8 on Aevum testnet: a USDC-style token (FiatTokenV2) with 6 decimals, EIP-2612 and EIP-3009. */
 export const TUSD8_ADDRESS: Address = "0x456569838f1d43009A91ebA4263147Afd7233483";

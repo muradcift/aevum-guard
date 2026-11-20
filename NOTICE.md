@@ -1,8 +1,7 @@
 # Third-party notices
 
-Aevum Starter Kit is MIT licensed (see [LICENSE](LICENSE)). It builds on the open-source projects below.
-None of their code is copied into this repository: the Solidity libraries are git submodules that keep
-their own LICENSE files, and the JavaScript packages are installed from npm.
+AevumGuard is MIT licensed (see [LICENSE](LICENSE)).
+**Based on [Aevum Starter Kit](https://github.com/qday-io/aevum-starter-kit) (MIT License, Copyright © 2026 PQA Labs)**, retaining its chain configuration (`packages/aevum`), `MockUSD8.sol`, `tools/check-shanghai.mjs`, and chunked log utilities.
 
 ## Solidity libraries (`contracts/lib`, git submodules)
 
@@ -24,4 +23,4 @@ their own LICENSE files, and the JavaScript packages are installed from npm.
 | tsx | 4.23.15 | MIT | examples (dev) |
 | typescript | 5.9.3 | Apache-2.0 | all (dev) |
 
-Their own dependencies carry their own licenses. To list them all, run `pnpm licenses list` in the repo root.
+To inspect full transitive dependency licenses, run `pnpm licenses list` in the repository root.
