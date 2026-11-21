@@ -83,81 +83,169 @@ export default function DocsPage() {
 
           <section id="architecture">
             <h2>2. On-Chain Execution Flow</h2>
-            <div
-              className="flow"
-              role="img"
-              aria-label="Execution flow: Owner Wallet funds AevumGuardVault via EIP-3009 or Approve. AI Agent signs an EIP-712 SpendIntent to /api/relay-spend, which calls executeSpendWithSignature. On-chain guardrail checks run, then spends within per-transaction and daily limits transfer instantly, while over-limit spends are escrowed as a SpendRequest with a 24 hour TTL for the owner to approve or reject and refund."
-            >
-              <div className="flow-row">
-                <div className="flow-node">
-                  <span className="flow-node-title">Owner Wallet</span>
-                </div>
-                <div className="flow-edge">
-                  <span className="flow-edge-label">EIP-3009 / Approve</span>
-                  <span className="flow-edge-line" aria-hidden="true" />
-                </div>
-                <div className="flow-node flow-node-hl">
-                  <span className="flow-node-title">AevumGuardVault</span>
-                  <span className="flow-node-sub">(tUSD8 Treasury)</span>
-                </div>
-              </div>
+            <div className="flow-diagram">
+              <svg
+                viewBox="0 0 760 510"
+                role="img"
+                aria-label="Execution flow: Owner Wallet funds and governs AevumGuardVault via EIP-3009 or Approve. In parallel, AI Agent signs an EIP-712 SpendIntent sent to /api/relay-spend, which invokes executeSpendWithSignature() on AevumGuardVault. Inside the vault, three on-chain guardrail checks run: not paused and mandate active and not expired, Confirmation of Payee allowlist verification, and total lifetime hard cap and vault liquidity. Spends within per-transaction and daily limits execute an instant tUSD8 transfer emitting SpendExecuted; over-limit spends create an escrowed SpendRequest with a 24 hour TTL for the owner to approve or reject and refund."
+              >
+                <defs>
+                  <marker
+                    id="flow-arrow"
+                    viewBox="0 0 8 8"
+                    refX="7"
+                    refY="4"
+                    markerWidth="8"
+                    markerHeight="8"
+                    markerUnits="userSpaceOnUse"
+                    orient="auto"
+                  >
+                    <path d="M 0.5 1 L 7.5 4 L 0.5 7 z" fill="var(--text-faint)" />
+                  </marker>
+                  <clipPath id="vault-clip">
+                    <rect x="100" y="152" width="560" height="168" rx="12" />
+                  </clipPath>
+                </defs>
 
-              <div className="flow-vconn" aria-hidden="true">
-                <span className="flow-vline" />
-              </div>
+                {/* Top Layer — Left Lane: Funding Path */}
+                <rect x="58" y="20" width="168" height="56" rx="10" fill="var(--surface)" stroke="var(--line-strong)" strokeWidth="1.25" />
+                <text x="142" y="42" textAnchor="middle" fill="var(--text)" fontFamily="var(--font-mono)" fontSize="13" fontWeight="600">
+                  Owner Wallet
+                </text>
+                <text x="142" y="60" textAnchor="middle" fill="var(--text-muted)" fontFamily="var(--font-body)" fontSize="11">
+                  Funds &amp; governs vault
+                </text>
 
-              <div className="flow-row">
-                <div className="flow-node">
-                  <span className="flow-node-title">AI Agent</span>
-                </div>
-                <div className="flow-edge">
-                  <span className="flow-edge-label">EIP-712 SpendIntent</span>
-                  <span className="flow-edge-line" aria-hidden="true" />
-                </div>
-                <div className="flow-node">
-                  <span className="flow-node-title">/api/relay-spend</span>
-                </div>
-                <div className="flow-edge">
-                  <span className="flow-edge-line" aria-hidden="true" />
-                </div>
-                <div className="flow-node">
-                  <span className="flow-node-title">executeSpendWithSignature()</span>
-                </div>
-              </div>
+                {/* Top Layer — Right Lane: Gasless Agent Execution Path */}
+                <rect x="254" y="20" width="180" height="56" rx="10" fill="var(--surface)" stroke="var(--line-strong)" strokeWidth="1.25" />
+                <text x="344" y="42" textAnchor="middle" fill="var(--text)" fontFamily="var(--font-mono)" fontSize="13" fontWeight="600">
+                  AI Agent
+                </text>
+                <text x="344" y="60" textAnchor="middle" fill="var(--text-muted)" fontFamily="var(--font-body)" fontSize="11">
+                  Signs EIP-712 SpendIntent
+                </text>
 
-              <div className="flow-vconn" aria-hidden="true">
-                <span className="flow-vline" />
-              </div>
+                <line x1="434" y1="48" x2="526" y2="48" stroke="var(--text-faint)" strokeWidth="1.5" markerEnd="url(#flow-arrow)" />
+                <text x="481" y="37" textAnchor="middle" fill="var(--text-muted)" fontFamily="var(--font-mono)" fontSize="11">
+                  SpendIntent
+                </text>
 
-              <div className="flow-guard">
-                <p className="flow-guard-title">On-Chain Guardrail Checks</p>
-                <ol className="flow-checks">
-                  <li>!paused &amp; mandate active &amp; !expired</li>
-                  <li>Confirmation of Payee allowlist check</li>
-                  <li>Total lifetime budget hard cap</li>
-                </ol>
-              </div>
+                <rect x="528" y="20" width="180" height="56" rx="10" fill="var(--surface)" stroke="var(--line-strong)" strokeWidth="1.25" />
+                <text x="618" y="42" textAnchor="middle" fill="var(--text)" fontFamily="var(--font-mono)" fontSize="13" fontWeight="600">
+                  /api/relay-spend
+                </text>
+                <text x="618" y="60" textAnchor="middle" fill="var(--text-muted)" fontFamily="var(--font-body)" fontSize="11">
+                  Stateless gas relayer
+                </text>
 
-              <div className="flow-split">
-                <div className="flow-branch">
-                  <div className="flow-vdrop" aria-hidden="true" />
-                  <span className="flow-pill flow-pill-good">Within Per-Tx &amp; Daily</span>
-                  <div className="flow-varrow" aria-hidden="true" />
-                  <div className="flow-result flow-result-good">
-                    <span className="flow-result-title">Instant tUSD8 Transfer</span>
-                    <span className="flow-result-sub">SpendExecuted event</span>
-                  </div>
-                </div>
-                <div className="flow-branch">
-                  <div className="flow-vdrop" aria-hidden="true" />
-                  <span className="flow-pill flow-pill-warn">Over Per-Tx or Daily</span>
-                  <div className="flow-varrow" aria-hidden="true" />
-                  <div className="flow-result flow-result-warn">
-                    <span className="flow-result-title">Escrowed SpendRequest (24h TTL)</span>
-                    <span className="flow-result-sub">Owner: Approve or Reject/Refund</span>
-                  </div>
-                </div>
-              </div>
+                {/* Vertical Connectors into AevumGuardVault */}
+                <line x1="142" y1="76" x2="142" y2="150" stroke="var(--text-faint)" strokeWidth="1.5" markerEnd="url(#flow-arrow)" />
+                <rect x="65" y="102" width="154" height="24" rx="12" fill="var(--surface)" stroke="var(--line-strong)" strokeWidth="1" />
+                <text x="142" y="114" dy="0.35em" textAnchor="middle" fill="var(--text-2)" fontFamily="var(--font-mono)" fontSize="11">
+                  EIP-3009 / Approve
+                </text>
+
+                <line x1="618" y1="76" x2="618" y2="150" stroke="var(--text-faint)" strokeWidth="1.5" markerEnd="url(#flow-arrow)" />
+                <rect x="510" y="102" width="216" height="24" rx="12" fill="var(--surface)" stroke="var(--line-strong)" strokeWidth="1" />
+                <text x="618" y="114" dy="0.35em" textAnchor="middle" fill="var(--text-2)" fontFamily="var(--font-mono)" fontSize="11">
+                  executeSpendWithSignature()
+                </text>
+
+                {/* Middle Layer — AevumGuardVault Container */}
+                <rect x="100" y="152" width="560" height="168" rx="12" fill="var(--accent-soft)" />
+                <g clipPath="url(#vault-clip)">
+                  <rect x="100" y="152" width="560" height="38" fill="var(--surface-info)" />
+                  <line x1="100" y1="190" x2="660" y2="190" stroke="var(--line-info)" strokeWidth="1" />
+                </g>
+                <rect x="100" y="152" width="560" height="168" rx="12" fill="none" stroke="var(--accent)" strokeWidth="1.5" />
+
+                <text x="380" y="171" dy="0.35em" textAnchor="middle">
+                  <tspan fill="var(--accent-text)" fontFamily="var(--font-mono)" fontSize="12.5" fontWeight="700">
+                    AevumGuardVault
+                  </tspan>
+                  <tspan fill="var(--text-muted)" fontFamily="var(--font-body)" fontSize="12" fontWeight="500">
+                    {"  ·  tUSD8 Treasury  ·  On-Chain Guardrail Checks"}
+                  </tspan>
+                </text>
+
+                {/* Guardrail Check Rows */}
+                <rect x="120" y="202" width="520" height="30" rx="7" fill="var(--bg)" stroke="var(--line-info)" strokeWidth="1" />
+                <circle cx="139" cy="217" r="9" fill="var(--accent-soft)" stroke="var(--line-info)" strokeWidth="1" />
+                <text x="139" y="217" dy="0.35em" textAnchor="middle" fill="var(--accent-text)" fontFamily="var(--font-mono)" fontSize="10.5" fontWeight="600">
+                  1
+                </text>
+                <text x="158" y="217" dy="0.35em" fill="var(--text)" fontFamily="var(--font-mono)" fontSize="12">
+                  !paused &amp; mandate active &amp; !expired
+                </text>
+
+                <rect x="120" y="240" width="520" height="30" rx="7" fill="var(--bg)" stroke="var(--line-info)" strokeWidth="1" />
+                <circle cx="139" cy="255" r="9" fill="var(--accent-soft)" stroke="var(--line-info)" strokeWidth="1" />
+                <text x="139" y="255" dy="0.35em" textAnchor="middle" fill="var(--accent-text)" fontFamily="var(--font-mono)" fontSize="10.5" fontWeight="600">
+                  2
+                </text>
+                <text x="158" y="255" dy="0.35em" fill="var(--text-2)" fontFamily="var(--font-body)" fontSize="12.5">
+                  Confirmation of Payee allowlist verification
+                </text>
+
+                <rect x="120" y="278" width="520" height="30" rx="7" fill="var(--bg)" stroke="var(--line-info)" strokeWidth="1" />
+                <circle cx="139" cy="293" r="9" fill="var(--accent-soft)" stroke="var(--line-info)" strokeWidth="1" />
+                <text x="139" y="293" dy="0.35em" textAnchor="middle" fill="var(--accent-text)" fontFamily="var(--font-mono)" fontSize="10.5" fontWeight="600">
+                  3
+                </text>
+                <text x="158" y="293" dy="0.35em" fill="var(--text-2)" fontFamily="var(--font-body)" fontSize="12.5">
+                  Total lifetime hard cap &amp; vault liquidity
+                </text>
+
+                {/* Bottom Layer — Orthogonal T-Branch */}
+                <path
+                  d="M 380 320 V 344 H 195 V 368"
+                  fill="none"
+                  stroke="var(--text-faint)"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                  markerEnd="url(#flow-arrow)"
+                />
+                <path
+                  d="M 380 344 H 565 V 368"
+                  fill="none"
+                  stroke="var(--text-faint)"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                  markerEnd="url(#flow-arrow)"
+                />
+
+                {/* Left Branch: Within Per-Tx & Daily */}
+                <rect x="107" y="370" width="176" height="26" rx="13" fill="var(--good-chip)" stroke="var(--good-line)" strokeWidth="1" />
+                <text x="195" y="383" dy="0.35em" textAnchor="middle" fill="var(--good)" fontFamily="var(--font-body)" fontSize="11.5" fontWeight="600">
+                  Within Per-Tx &amp; Daily
+                </text>
+
+                <line x1="195" y1="396" x2="195" y2="420" stroke="var(--text-faint)" strokeWidth="1.5" markerEnd="url(#flow-arrow)" />
+
+                <rect x="60" y="422" width="270" height="66" rx="10" fill="var(--good-bg)" stroke="var(--good-line)" strokeWidth="1.25" />
+                <text x="195" y="447" textAnchor="middle" fill="var(--text)" fontFamily="var(--font-body)" fontSize="13.5" fontWeight="600">
+                  Instant tUSD8 Transfer
+                </text>
+                <text x="195" y="468" textAnchor="middle" fill="var(--good)" fontFamily="var(--font-mono)" fontSize="11.5">
+                  SpendExecuted event
+                </text>
+
+                {/* Right Branch: Over Per-Tx or Daily */}
+                <rect x="479" y="370" width="172" height="26" rx="13" fill="var(--warn-chip)" stroke="var(--warn-line)" strokeWidth="1" />
+                <text x="565" y="383" dy="0.35em" textAnchor="middle" fill="var(--warn)" fontFamily="var(--font-body)" fontSize="11.5" fontWeight="600">
+                  Over Per-Tx or Daily
+                </text>
+
+                <line x1="565" y1="396" x2="565" y2="420" stroke="var(--text-faint)" strokeWidth="1.5" markerEnd="url(#flow-arrow)" />
+
+                <rect x="430" y="422" width="270" height="66" rx="10" fill="var(--warn-bg)" stroke="var(--warn-line)" strokeWidth="1.25" />
+                <text x="565" y="447" textAnchor="middle" fill="var(--text)" fontFamily="var(--font-body)" fontSize="13.5" fontWeight="600">
+                  Escrowed SpendRequest (24h TTL)
+                </text>
+                <text x="565" y="468" textAnchor="middle" fill="var(--warn)" fontFamily="var(--font-body)" fontSize="11.5">
+                  Owner: Approve or Reject / Refund
+                </text>
+              </svg>
             </div>
           </section>
 
