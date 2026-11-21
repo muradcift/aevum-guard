@@ -24,6 +24,8 @@ interface AgentMandatePanelProps {
   onRotateDemoAgent: () => void;
   agentAddress: string;
   onAgentAddressChange: (addr: string) => void;
+  /** Fired when the user explicitly picks/types an agent, so auto-discovery stops overriding it. */
+  onAgentTouched?: () => void;
   onMutated: () => void;
 }
 
@@ -39,6 +41,7 @@ export function AgentMandatePanel({
   onRotateDemoAgent,
   agentAddress,
   onAgentAddressChange,
+  onAgentTouched,
   onMutated,
 }: AgentMandatePanelProps) {
   const config = useConfig();
@@ -208,12 +211,22 @@ export function AgentMandatePanel({
               <button
                 type="button"
                 className="btn small secondary"
-                onClick={() => onAgentAddressChange(demoAgent.address)}
+                onClick={() => {
+                  onAgentTouched?.();
+                  onAgentAddressChange(demoAgent.address);
+                }}
               >
                 Use Demo Agent
               </button>
             )}
-            <button type="button" className="btn small ghost" onClick={onRotateDemoAgent}>
+            <button
+              type="button"
+              className="btn small ghost"
+              onClick={() => {
+                onAgentTouched?.();
+                onRotateDemoAgent();
+              }}
+            >
               Rotate Key
             </button>
           </div>
@@ -231,7 +244,10 @@ export function AgentMandatePanel({
             className="field"
             type="text"
             value={agentAddress}
-            onChange={(e) => onAgentAddressChange(e.target.value)}
+            onChange={(e) => {
+              onAgentTouched?.();
+              onAgentAddressChange(e.target.value);
+            }}
             placeholder="0x..."
           />
         </label>

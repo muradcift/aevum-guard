@@ -10,10 +10,25 @@ import { aevumGuardAbi, spendIntentTypedData } from "@aevum-kit/aevum";
 import { explain } from "@/lib/errors";
 import { formatToken, refToBytes32, safeParseUnits, short } from "@/lib/format";
 import type { Network } from "@/lib/env";
-import type { ActionFeedback } from "@/lib/vaultTypes";
+import type { ActionFeedback, PayeeView, PolicyView, VaultView } from "@/lib/vaultTypes";
 import { ActionFeedbackBox } from "./ActionFeedbackBox";
 
 const UNVERIFIED_DEMO_PAYEE: Address = "0x000000000000000000000000000000000000dEaD";
+
+type VerdictStatus = "pass" | "escalate" | "revert";
+
+interface CheckResult {
+  name: string;
+  outcome: VerdictStatus;
+  detail: string;
+}
+
+interface DryRunVerdict {
+  overall: VerdictStatus;
+  headline: string;
+  subline: string;
+  checks: CheckResult[];
+}
 
 interface SpendSimulatorPanelProps {
   net: Network;
@@ -24,6 +39,8 @@ interface SpendSimulatorPanelProps {
   tokenSymbol: string;
   demoAgent: PrivateKeyAccount | null;
   preferredPayee?: Address;
+  /** The agent whose live policy the dry-run evaluates (discovered active on-chain agent). */
+  inspectedAgent?: Address;
   onMutated: () => void;
 }
 
@@ -36,6 +53,7 @@ export function SpendSimulatorPanel({
   tokenSymbol,
   demoAgent,
   preferredPayee,
+  inspectedAgent,
   onMutated,
 }: SpendSimulatorPanelProps) {
   const config = useConfig();
@@ -48,6 +66,8 @@ export function SpendSimulatorPanel({
   const [memo, setMemo] = useState("Cloud inference API settlement");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
+  const [dryRunning, setDryRunning] = useState(false);
+  const [verdict, setVerdict] = useState<DryRunVerdict | null>(null);
 
   useEffect(() => {
     if (preferredPayee && !recipient) {
@@ -71,7 +91,7 @@ export function SpendSimulatorPanel({
     const safeTarget = preferredPayee ?? address ?? UNVERIFIED_DEMO_PAYEE;
     if (kind === "auto") {
       setRecipient(safeTarget);
-      setAmountStr("0.50");
+      setAmountStr("0.40");
       setInvoiceText(`INV-AUTO-${Math.floor(Math.random() * 900 + 100)}`);
       setMemo("Routine API inference call (within limit)");
     } else if (kind === "blocked") {
@@ -81,11 +101,251 @@ export function SpendSimulatorPanel({
       setMemo("Transfer to unverified external address");
     } else {
       setRecipient(safeTarget);
-      setAmountStr("2.00");
+      setAmountStr("0.85");
       setInvoiceText(`INV-ESC-${Math.floor(Math.random() * 900 + 100)}`);
       setMemo("Dedicated GPU cluster lease (over per-tx limit)");
     }
     setFeedback(null);
+    setVerdict(null);
+  }
+
+  /**
+   * Deterministic "dry-run" of AevumGuardVault._processSpend, reading live
+   * on-chain state so zero-wallet judges can see exactly what would happen.
+   * Mirrors the contract's exact check order.
+   */
+  async function runDryRun() {
+    const cleanRecipient = recipient.trim();
+    if (!isAddress(cleanRecipient)) {
+      setVerdict({
+        overall: "revert",
+        headline: "Revert · ZeroAddress",
+        subline: "Recipient is not a valid 0x address.",
+        checks: [{ name: "Recipient", outcome: "revert", detail: "ZeroAddress()" }],
+      });
+      return;
+    }
+    const amount = safeParseUnits(amountStr, tokenDecimals);
+    if (!amount || amount <= 0n) {
+      setVerdict({
+        overall: "revert",
+        headline: "Revert · ZeroAmount",
+        subline: "Amount must be greater than zero.",
+        checks: [{ name: "Amount", outcome: "revert", detail: "ZeroAmount()" }],
+      });
+      return;
+    }
+    if (!inspectedAgent) {
+      setVerdict({
+        overall: "revert",
+        headline: "Revert · AgentNotActive",
+        subline: "No active on-chain agent mandate to evaluate.",
+        checks: [{ name: "Agent Mandate", outcome: "revert", detail: "AgentNotActive()" }],
+      });
+      return;
+    }
+
+    setDryRunning(true);
+    try {
+      const [vaultRaw, policyRaw, payeeRaw] = await Promise.all([
+        readContract(config, {
+          address: vaultAddress,
+          abi: aevumGuardAbi,
+          functionName: "getVault",
+          args: [vaultId],
+          chainId: net.chain.id,
+        }),
+        readContract(config, {
+          address: vaultAddress,
+          abi: aevumGuardAbi,
+          functionName: "getPolicy",
+          args: [vaultId, inspectedAgent],
+          chainId: net.chain.id,
+        }),
+        readContract(config, {
+          address: vaultAddress,
+          abi: aevumGuardAbi,
+          functionName: "getPayee",
+          args: [vaultId, cleanRecipient as Address],
+          chainId: net.chain.id,
+        }),
+      ]);
+      const vault = vaultRaw as VaultView;
+      const policy = policyRaw as PolicyView;
+      const payee = payeeRaw as PayeeView;
+
+      const checks: CheckResult[] = [];
+
+      // 1. Vault exists + not paused
+      if (!vault || vault.owner === "0x0000000000000000000000000000000000000000") {
+        checks.push({ name: "Vault exists", outcome: "revert", detail: "VaultNotFound()" });
+        setVerdict({
+          overall: "revert",
+          headline: "Revert · VaultNotFound",
+          subline: `Vault #${vaultId.toString()} does not exist.`,
+          checks,
+        });
+        return;
+      }
+      checks.push({
+        name: "Vault active",
+        outcome: "pass",
+        detail: "Vault found",
+      });
+      if (vault.paused) {
+        checks.push({ name: "Kill-switch", outcome: "revert", detail: "VaultPaused()" });
+        setVerdict({
+          overall: "revert",
+          headline: "Revert · VaultPaused",
+          subline: "Vault is frozen by its emergency kill-switch.",
+          checks,
+        });
+        return;
+      }
+      checks.push({ name: "Kill-switch", outcome: "pass", detail: "Not paused" });
+
+      // 2. Agent active + not expired
+      if (!policy || !policy.active) {
+        checks.push({ name: "Agent Mandate", outcome: "revert", detail: "AgentNotActive()" });
+        setVerdict({
+          overall: "revert",
+          headline: "Revert · AgentNotActive",
+          subline: `${short(inspectedAgent)} has no active mandate on this vault.`,
+          checks,
+        });
+        return;
+      }
+      checks.push({ name: "Agent Mandate", outcome: "pass", detail: "Active" });
+      const nowSec = BigInt(Math.floor(Date.now() / 1000));
+      if (policy.expiresAt !== 0n && nowSec > policy.expiresAt) {
+        checks.push({ name: "Mandate expiry", outcome: "revert", detail: "PolicyExpired()" });
+        setVerdict({
+          overall: "revert",
+          headline: "Revert · PolicyExpired",
+          subline: "This agent's mandate has expired.",
+          checks,
+        });
+        return;
+      }
+      checks.push({ name: "Mandate expiry", outcome: "pass", detail: "Not expired" });
+
+      // 3. Allowlist / payee verification
+      const payeeAllowed = Boolean(payee?.approved);
+      if (vault.enforceAllowlist && !payeeAllowed) {
+        checks.push({ name: "Confirmation of Payee", outcome: "revert", detail: "PayeeNotAllowlisted()" });
+        setVerdict({
+          overall: "revert",
+          headline: "Revert · PayeeNotAllowlisted",
+          subline: "Recipient is not on the verified payee allowlist.",
+          checks,
+        });
+        return;
+      }
+      checks.push({
+        name: "Confirmation of Payee",
+        outcome: "pass",
+        detail: vault.enforceAllowlist
+          ? `Verified${payee?.label ? ` (${payee.label})` : ""}`
+          : "Allowlist off",
+      });
+
+      // 4. Available balance
+      if (vault.balance < amount) {
+        checks.push({ name: "Vault balance", outcome: "revert", detail: "InsufficientVaultBalance()" });
+        setVerdict({
+          overall: "revert",
+          headline: "Revert · InsufficientVaultBalance",
+          subline: `${formatToken(vault.balance, tokenDecimals)} available, ${formatToken(amount, tokenDecimals)} required.`,
+          checks,
+        });
+        return;
+      }
+      checks.push({
+        name: "Vault balance",
+        outcome: "pass",
+        detail: `${formatToken(vault.balance, tokenDecimals)} available ≥ ${formatToken(amount, tokenDecimals)}`,
+      });
+
+      // 5. Lifetime budget
+      if (policy.totalBudget !== 0n && policy.spentTotal + amount > policy.totalBudget) {
+        const remaining =
+          policy.totalBudget > policy.spentTotal ? policy.totalBudget - policy.spentTotal : 0n;
+        checks.push({ name: "Lifetime budget", outcome: "revert", detail: "TotalBudgetExceeded()" });
+        setVerdict({
+          overall: "revert",
+          headline: "Revert · TotalBudgetExceeded",
+          subline: `Only ${formatToken(remaining, tokenDecimals)} left of lifetime cap (requested ${formatToken(amount, tokenDecimals)}).`,
+          checks,
+        });
+        return;
+      }
+      checks.push({
+        name: "Lifetime budget",
+        outcome: "pass",
+        detail:
+          policy.totalBudget === 0n
+            ? "No cap"
+            : `${formatToken(policy.spentTotal, tokenDecimals)} / ${formatToken(policy.totalBudget, tokenDecimals)} used`,
+      });
+
+      // 6. Per-tx + daily limit → instant vs escalate
+      const exceedsPerTx = amount > policy.perTxLimit;
+      const exceedsDaily = policy.spentToday + amount > policy.dailyLimit;
+      checks.push({
+        name: "Per-tx limit",
+        outcome: exceedsPerTx ? "escalate" : "pass",
+        detail: `${formatToken(amount, tokenDecimals)} vs ${formatToken(policy.perTxLimit, tokenDecimals)} cap`,
+      });
+      checks.push({
+        name: "Daily limit",
+        outcome: exceedsDaily ? "escalate" : "pass",
+        detail: `${formatToken(policy.spentToday + amount, tokenDecimals)} vs ${formatToken(policy.dailyLimit, tokenDecimals)} daily cap`,
+      });
+
+      if (!exceedsPerTx && !exceedsDaily) {
+        setVerdict({
+          overall: "pass",
+          headline: "SpendExecuted · Instant Settlement",
+          subline: "Within per-tx and daily limits — transfers immediately.",
+          checks,
+        });
+        return;
+      }
+
+      // 7. Over-limit: queue or revert
+      if (!policy.allowQueueOverflow) {
+        checks.push({ name: "Queue overflow", outcome: "revert", detail: "SpendLimitExceeded()" });
+        setVerdict({
+          overall: "revert",
+          headline: "Revert · SpendLimitExceeded",
+          subline: "Over limit and queue overflow is disabled for this agent.",
+          checks,
+        });
+        return;
+      }
+      checks.push({
+        name: "Queue overflow",
+        outcome: "escalate",
+        detail: "allowQueueOverflow = true",
+      });
+      const overLimitNote =
+        "Over-limit amount would queue for 24h human approval if vault liquidity is topped up.";
+      setVerdict({
+        overall: "escalate",
+        headline: "SpendQueued · 24h Escrow Queue",
+        subline: overLimitNote,
+        checks,
+      });
+    } catch (e) {
+      setVerdict({
+        overall: "revert",
+        headline: "Dry-run failed",
+        subline: explain(e),
+        checks: [],
+      });
+    } finally {
+      setDryRunning(false);
+    }
   }
 
   async function runSpend() {
@@ -250,7 +510,7 @@ export function SpendSimulatorPanel({
       <div className="scenario-row">
         <button type="button" className="scenario-btn" onClick={() => applyScenario("auto")}>
           <strong>1. Within Limit</strong>
-          <span>Verified payee · 0.50 {tokenSymbol} → Auto-Approve</span>
+          <span>Verified payee · 0.40 {tokenSymbol} → Auto-Approve</span>
         </button>
         <button type="button" className="scenario-btn" onClick={() => applyScenario("blocked")}>
           <strong>2. Unverified Payee</strong>
@@ -258,7 +518,7 @@ export function SpendSimulatorPanel({
         </button>
         <button type="button" className="scenario-btn" onClick={() => applyScenario("queue")}>
           <strong>3. Over Per-Tx Cap</strong>
-          <span>Verified payee · 2.00 {tokenSymbol} → Queue</span>
+          <span>Verified payee · 0.85 {tokenSymbol} → Queue</span>
         </button>
       </div>
 
@@ -269,13 +529,24 @@ export function SpendSimulatorPanel({
             className="field"
             type="text"
             value={recipient}
-            onChange={(e) => setRecipient(e.target.value)}
+            onChange={(e) => {
+              setRecipient(e.target.value);
+              setVerdict(null);
+            }}
             placeholder="0x..."
           />
         </label>
         <label className="field-label">
           Amount ({tokenSymbol})
-          <input className="field" type="text" value={amountStr} onChange={(e) => setAmountStr(e.target.value)} />
+          <input
+            className="field"
+            type="text"
+            value={amountStr}
+            onChange={(e) => {
+              setAmountStr(e.target.value);
+              setVerdict(null);
+            }}
+          />
         </label>
         <label className="field-label">
           Invoice / Reference
@@ -299,6 +570,93 @@ export function SpendSimulatorPanel({
             ? `Sign as Demo Agent (${short(demoAgent?.address ?? "")}) & Submit Gasless`
             : "Execute Spend via Connected Wallet"}
       </button>
+
+      <button
+        type="button"
+        className="btn block"
+        style={{ background: "var(--surface-2)", borderColor: "var(--line-strong)", color: "var(--text)" }}
+        disabled={dryRunning || busy}
+        onClick={() => void runDryRun()}
+      >
+        {dryRunning ? "Reading live on-chain policy…" : "Dry-Run Guardrail Check (No Wallet Needed)"}
+      </button>
+
+      {verdict && (
+        <div
+          className="stack"
+          style={{
+            gap: 10,
+            padding: "14px 16px",
+            borderRadius: "var(--radius-sm)",
+            border: "1px solid",
+            borderColor:
+              verdict.overall === "pass"
+                ? "var(--good-line)"
+                : verdict.overall === "escalate"
+                  ? "var(--warn-line)"
+                  : "var(--bad-line)",
+            background:
+              verdict.overall === "pass"
+                ? "var(--good-bg)"
+                : verdict.overall === "escalate"
+                  ? "var(--warn-bg)"
+                  : "var(--bad-bg)",
+          }}
+        >
+          <div className="check-top" style={{ alignItems: "center" }}>
+            <strong
+              style={{
+                color:
+                  verdict.overall === "pass"
+                    ? "var(--good)"
+                    : verdict.overall === "escalate"
+                      ? "var(--warn)"
+                      : "var(--bad)",
+              }}
+            >
+              {verdict.headline}
+            </strong>
+            <span
+              className={`status-pill ${
+                verdict.overall === "pass" ? "good" : verdict.overall === "escalate" ? "warn" : "bad"
+              }`}
+            >
+              {verdict.overall === "pass" ? "PASS" : verdict.overall === "escalate" ? "ESCALATE" : "REVERT"}
+            </span>
+          </div>
+          <p className="fine" style={{ color: "var(--text-2)" }}>
+            {verdict.subline}
+          </p>
+          {verdict.checks.length > 0 && (
+            <div className="stack" style={{ gap: 6 }}>
+              {verdict.checks.map((c, idx) => (
+                <div
+                  key={`${c.name}-${idx}`}
+                  style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}
+                >
+                  <span className="fine" style={{ color: "var(--text-2)", fontFamily: "var(--font-mono)" }}>
+                    {c.name}
+                  </span>
+                  <span
+                    className="fine"
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      color:
+                        c.outcome === "pass"
+                          ? "var(--good)"
+                          : c.outcome === "escalate"
+                            ? "var(--warn)"
+                            : "var(--bad)",
+                    }}
+                  >
+                    {c.outcome === "pass" ? "PASS" : c.outcome === "escalate" ? "ESCALATE" : "REVERT"} · {c.detail}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <p className="fine">
         {activeMode === "gasless-agent"

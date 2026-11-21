@@ -2,16 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { formatEther, parseEventLogs, type Address } from "viem";
+import { formatEther, isAddress, parseEventLogs, type Address, type Hex } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
-import { useAccount, useBalance, useConfig, useReadContract, useWatchAsset } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
+import { useAccount, useBalance, useConfig, usePublicClient, useReadContract, useWatchAsset } from "wagmi";
 import { simulateContract, waitForTransactionReceipt, writeContract } from "wagmi/actions";
 import { addressUrl, aevumGuardAbi, erc20Abi, links } from "@aevum-kit/aevum";
 import { loadOrCreateDemoAgent, rotateDemoAgent } from "@/lib/demoAgent";
 import { explain } from "@/lib/errors";
 import { formatToken, short } from "@/lib/format";
+import { discoverVaultActors, launchRecentPlan, type DiscoveredPayee } from "@/lib/launchWindow";
 import { useNetwork } from "@/lib/network";
-import type { ActionFeedback, VaultView } from "@/lib/vaultTypes";
+import type { ActionFeedback, PayeeView, PolicyView, VaultView } from "@/lib/vaultTypes";
 import { ActionFeedbackBox } from "./ActionFeedbackBox";
 import { AgentMandatePanel } from "./AgentMandatePanel";
 import { ApprovalAuditPanel } from "./ApprovalAuditPanel";
@@ -85,11 +87,104 @@ export function VaultDashboard() {
   const vaultExists = Boolean(vault && vault.owner !== ZERO_ADDRESS);
   const isOwner = Boolean(address && vault && vault.owner.toLowerCase() === address.toLowerCase());
 
+  const client = usePublicClient({ chainId: appChain.id });
+
+  // Auto-discover live on-chain agent mandates & verified payees so first-time
+  // logged-out judges immediately see the REAL mandate instead of "NOT AUTHORIZED".
+  const discoveryQuery = useQuery({
+    queryKey: [
+      "vault-discovery",
+      net.chain.id,
+      vaultAddress,
+      selectedVaultId.toString(),
+      net.deployBlock?.toString() ?? "0",
+      refreshTick,
+    ],
+    enabled: Boolean(client && vaultAddress && vaultExists),
+    queryFn: async () => {
+      const raw = await discoverVaultActors(client!, vaultAddress!, selectedVaultId, net.deployBlock);
+      // Verify each discovered payee's live status via getPayee.
+      const verifiedPayees: { payee: Address; label: string }[] = [];
+      const seenPayee = new Set<string>();
+      for (const p of raw.payees) {
+        const addr = p.payee as Address;
+        const key = addr.toLowerCase();
+        if (seenPayee.has(key)) continue;
+        try {
+          const info = (await client!.readContract({
+            address: vaultAddress!,
+            abi: aevumGuardAbi,
+            functionName: "getPayee",
+            args: [selectedVaultId, addr],
+          })) as PayeeView;
+          if (info?.approved) {
+            seenPayee.add(key);
+            verifiedPayees.push({ payee: addr, label: info.label || p.label });
+          }
+        } catch {
+          // skip payees that fail live read
+        }
+      }
+      // Verify each discovered agent's live status via getPolicy, keep active ones.
+      const activeAgents: { agent: Address; label: string }[] = [];
+      const seenAgent = new Set<string>();
+      for (const a of raw.agents) {
+        const addr = a.agent as Address;
+        const key = addr.toLowerCase();
+        if (seenAgent.has(key)) continue;
+        try {
+          const pol = (await client!.readContract({
+            address: vaultAddress!,
+            abi: aevumGuardAbi,
+            functionName: "getPolicy",
+            args: [selectedVaultId, addr],
+          })) as PolicyView;
+          if (pol?.active) {
+            seenAgent.add(key);
+            activeAgents.push({ agent: addr, label: pol.label || a.label });
+          }
+        } catch {
+          // skip agents that fail live read
+        }
+      }
+      return {
+        payees: verifiedPayees,
+        agents: activeAgents,
+        caption: raw.label,
+        firstPayee: verifiedPayees[0]?.payee,
+        firstAgent: activeAgents[0]?.agent,
+      };
+    },
+  });
+
+  const discoveredPayees = discoveryQuery.data?.payees ?? [];
+  const discoveredActiveAgent = discoveryQuery.data?.firstAgent;
+  const firstVerifiedPayee = discoveryQuery.data?.firstPayee;
+
+  // Tracks whether the user has explicitly chosen an agent (demo key, rotate, or
+  // manual entry). While untouched, we auto-switch a brand-new random browser key
+  // to the first real on-chain agent so first-time judges see the live mandate.
+  const [agentTouched, setAgentTouched] = useState(false);
+
+  // Auto-switch the inspected agent to the first active on-chain agent when the
+  // current selection isn't authorized (e.g. a brand-new random browser key).
+  useEffect(() => {
+    if (agentTouched) return;
+    if (!discoveredActiveAgent) return;
+    const trimmed = agentAddress.trim();
+    const currentIsActive =
+      discoveryQuery.data?.agents.some((a) => a.agent.toLowerCase() === trimmed.toLowerCase()) ?? false;
+    if (!isAddress(trimmed) || !currentIsActive) {
+      setAgentAddress(discoveredActiveAgent);
+    }
+  }, [discoveredActiveAgent, discoveryQuery.data?.agents, agentAddress, agentTouched]);
+
   function refreshAll() {
     void gasBalance.refetch();
     void tokenBalance.refetch();
     void nextVaultIdQuery.refetch();
     void vaultQuery.refetch();
+    void discoveryQuery.refetch();
     setRefreshTick((t) => t + 1);
   }
 
@@ -338,6 +433,7 @@ export function VaultDashboard() {
                 tokenSymbol={token.symbol}
                 onMutated={refreshAll}
                 onPayeeSelected={setPreferredPayee}
+                discoveredPayees={discoveredPayees}
               />
 
               <AgentMandatePanel
@@ -352,6 +448,7 @@ export function VaultDashboard() {
                 onRotateDemoAgent={handleRotateAgent}
                 agentAddress={agentAddress}
                 onAgentAddressChange={setAgentAddress}
+                onAgentTouched={() => setAgentTouched(true)}
                 onMutated={refreshAll}
               />
 
@@ -363,7 +460,10 @@ export function VaultDashboard() {
                 tokenDecimals={token.decimals}
                 tokenSymbol={token.symbol}
                 demoAgent={demoAgent}
-                preferredPayee={preferredPayee}
+                preferredPayee={preferredPayee ?? firstVerifiedPayee}
+                inspectedAgent={
+                  isAddress(agentAddress.trim()) ? (agentAddress.trim() as Address) : discoveredActiveAgent
+                }
                 onMutated={refreshAll}
               />
 

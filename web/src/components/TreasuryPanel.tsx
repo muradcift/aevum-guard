@@ -30,6 +30,8 @@ interface TreasuryPanelProps {
   tokenSymbol: string;
   onMutated: () => void;
   onPayeeSelected?: (payee: Address) => void;
+  /** Live on-chain verified payees auto-discovered from PayeeUpdated logs. */
+  discoveredPayees?: { payee: Address; label: string }[];
 }
 
 export function TreasuryPanel({
@@ -44,6 +46,7 @@ export function TreasuryPanel({
   tokenSymbol,
   onMutated,
   onPayeeSelected,
+  discoveredPayees,
 }: TreasuryPanelProps) {
   const config = useConfig();
   const { address } = useAccount();
@@ -462,6 +465,43 @@ export function TreasuryPanel({
             {vault.enforceAllowlist ? "Disable Strict Mode" : "Enable Strict Mode"}
           </button>
         </div>
+
+        {discoveredPayees && discoveredPayees.length > 0 && (
+          <div className="stack" style={{ gap: 8 }}>
+            <div className="fine" style={{ color: "var(--text-2)" }}>
+              <strong>Verified Payees (live on-chain)</strong>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {discoveredPayees.map((p) => (
+                <button
+                  key={p.payee}
+                  type="button"
+                  className="pill"
+                  style={{
+                    background: "var(--good-chip)",
+                    borderColor: "var(--good-line)",
+                    color: "var(--good)",
+                    cursor: "pointer",
+                  }}
+                  title={p.label ? `${p.label} — ${p.payee}` : p.payee}
+                  onClick={() => {
+                    setPayeeInput(p.payee);
+                    onPayeeSelected?.(p.payee);
+                  }}
+                >
+                  <span className="dot" />
+                  <span className="mono">{p.label ? p.label : short(p.payee)}</span>
+                  <span className="mono" style={{ opacity: 0.7 }}>
+                    {short(p.payee)}
+                  </span>
+                  <span className="status-pill good" style={{ padding: "2px 8px", fontSize: 11 }}>
+                    Verified
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="field-grid">
           <label className="field-label">

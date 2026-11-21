@@ -339,6 +339,13 @@ select.field, textarea.field {
   flex-wrap: wrap;
   width: 100%;
 }
+@media (min-width: 681px) {
+  .flow-row { flex-wrap: nowrap; }
+  .flow-node { padding: 8px 10px; }
+  .flow-node-title { font-size: 12px; }
+  .flow-edge { padding: 0 6px; }
+  .flow-edge-line { width: clamp(16px, 2.5vw, 34px); }
+}
 .flow-node {
   background: var(--surface);
   border: 1px solid var(--line-strong);
