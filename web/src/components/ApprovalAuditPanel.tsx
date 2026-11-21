@@ -525,7 +525,7 @@ export function ApprovalAuditPanel({
                 <tbody>
                   {auditQuery.data.entries.map((item) => (
                     <tr key={`${item.txHash}-${item.logIndex}`}>
-                      <td>
+                      <td className="audit-event">
                         <span
                           className={`status-pill ${
                             item.kind === "Executed" || item.kind === "Approved" || item.kind === "Deposited"

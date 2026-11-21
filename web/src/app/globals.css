@@ -208,11 +208,28 @@ input.field {
 
 /* ---------- tables ---------- */
 .table-wrap { overflow-x: auto; }
+table.data { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.data th { text-align: left; font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.data td { padding: 12px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.data tr:last-child td { border-bottom: 0; }
+table.data td.right, table.data th.right { text-align: right; }
 
-/* ---------- audit log table: compact at 1024px, obvious scroll affordance ---------- */
-.audit-table { min-width: 460px; }
-.audit-detail { white-space: normal; min-width: 160px; }
-.audit-tx { white-space: nowrap; }
+/* ---------- audit log table: wrapping detail column, non-overlapping metrics ---------- */
+table.data.audit-table { table-layout: auto; min-width: 460px; }
+table.data.audit-table th,
+table.data.audit-table td { padding: 11px 14px; vertical-align: top; }
+table.data.audit-table th { white-space: nowrap; }
+table.data.audit-table td.audit-detail {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 180px;
+}
+table.data.audit-table td.audit-event,
+table.data.audit-table td.audit-amount,
+table.data.audit-table td.audit-tx {
+  white-space: nowrap;
+}
+table.data.audit-table td.audit-event .status-pill { white-space: nowrap; }
 .audit-scroll-hint { display: none; }
 .audit-table-wrap {
   /* Scroll shadows: the edge fades only while the table can still scroll. */
@@ -226,16 +243,10 @@ input.field {
   background-attachment: local, local, scroll, scroll;
 }
 @media (max-width: 1280px) {
-  .audit-table th,
-  .audit-table td { padding: 9px 10px; font-size: 12.5px; }
-  .audit-detail { min-width: 130px; max-width: 260px; }
+  table.data.audit-table th,
+  table.data.audit-table td { padding: 9px 12px; font-size: 12.5px; }
   .audit-scroll-hint { display: block; }
 }
-table.data { width: 100%; border-collapse: collapse; font-size: 14px; }
-table.data th { text-align: left; font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; padding: 12px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-table.data td { padding: 12px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-table.data tr:last-child td { border-bottom: 0; }
-table.data td.right, table.data th.right { text-align: right; }
 
 .progress { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
 .progress > span { display: block; height: 100%; background: var(--accent); transition: width 0.2s ease; }
