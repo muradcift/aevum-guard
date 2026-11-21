@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { isAddress, parseEventLogs, type Address, type Hash } from "viem";
+import { parseEventLogs, type Address, type Hash } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import { useAccount, useConfig } from "wagmi";
 import { readContract, simulateContract, waitForTransactionReceipt, writeContract } from "wagmi/actions";
 import { aevumGuardAbi, spendIntentTypedData } from "@aevum-kit/aevum";
 import { explain } from "@/lib/errors";
-import { formatToken, refToBytes32, safeParseUnits, short } from "@/lib/format";
+import {
+  formatToken,
+  parseAmountInput,
+  recipientError,
+  refToBytes32,
+  short,
+} from "@/lib/format";
 import type { Network } from "@/lib/env";
 import type { ActionFeedback, PayeeView, PolicyView, VaultView } from "@/lib/vaultTypes";
 import { ActionFeedbackBox } from "./ActionFeedbackBox";
@@ -69,11 +75,21 @@ export function SpendSimulatorPanel({
   const [dryRunning, setDryRunning] = useState(false);
   const [verdict, setVerdict] = useState<DryRunVerdict | null>(null);
 
+  // Auto-fill the recipient from the discovered verified payee exactly ONCE, on
+  // initial discovery. Manual edits — including clearing the field back to "" —
+  // are never overwritten, so the empty-recipient validation path stays usable.
+  const initialRecipientFilledRef = useRef(false);
+  const recipientTouchedRef = useRef(false);
   useEffect(() => {
-    if (preferredPayee && !recipient) {
-      setRecipient(preferredPayee);
-    }
-  }, [preferredPayee, recipient]);
+    if (initialRecipientFilledRef.current || !preferredPayee) return;
+    initialRecipientFilledRef.current = true;
+    if (recipientTouchedRef.current) return;
+    setRecipient(preferredPayee);
+  }, [preferredPayee]);
+
+  const amountCheck = parseAmountInput(amountStr, tokenDecimals);
+  const recipientProblem = recipientError(recipient);
+  const amountProblem = amountCheck.ok ? null : amountCheck.message;
 
   const relayStatus = useQuery({
     queryKey: ["relay-spend-status", net.chain.id],
@@ -89,6 +105,7 @@ export function SpendSimulatorPanel({
 
   function applyScenario(kind: "auto" | "blocked" | "queue") {
     const safeTarget = preferredPayee ?? address ?? UNVERIFIED_DEMO_PAYEE;
+    recipientTouchedRef.current = true;
     if (kind === "auto") {
       setRecipient(safeTarget);
       setAmountStr("0.40");
@@ -116,25 +133,26 @@ export function SpendSimulatorPanel({
    */
   async function runDryRun() {
     const cleanRecipient = recipient.trim();
-    if (!isAddress(cleanRecipient)) {
+    if (recipientProblem) {
+      const isZero = /^0x0{40}$/i.test(cleanRecipient);
       setVerdict({
         overall: "revert",
-        headline: "Revert · ZeroAddress",
-        subline: "Recipient is not a valid 0x address.",
-        checks: [{ name: "Recipient", outcome: "revert", detail: "ZeroAddress()" }],
+        headline: isZero ? "Revert · ZeroAddress" : "Revert · Invalid Recipient",
+        subline: recipientProblem,
+        checks: [{ name: "Recipient", outcome: "revert", detail: isZero ? "ZeroAddress()" : recipientProblem }],
       });
       return;
     }
-    const amount = safeParseUnits(amountStr, tokenDecimals);
-    if (!amount || amount <= 0n) {
+    if (!amountCheck.ok) {
       setVerdict({
         overall: "revert",
-        headline: "Revert · ZeroAmount",
-        subline: "Amount must be greater than zero.",
-        checks: [{ name: "Amount", outcome: "revert", detail: "ZeroAmount()" }],
+        headline: amountCheck.code === "zero" ? "Revert · ZeroAmount" : "Revert · Invalid Amount",
+        subline: amountCheck.message,
+        checks: [{ name: "Amount", outcome: "revert", detail: amountCheck.message }],
       });
       return;
     }
+    const amount = amountCheck.value;
     if (!inspectedAgent) {
       setVerdict({
         overall: "revert",
@@ -329,7 +347,7 @@ export function SpendSimulatorPanel({
         detail: "allowQueueOverflow = true",
       });
       const overLimitNote =
-        "Over-limit amount would queue for 24h human approval if vault liquidity is topped up.";
+        "Amount exceeds the per-tx limit, so it is escrowed in the 24h human approval queue instead of being paid out.";
       setVerdict({
         overall: "escalate",
         headline: "SpendQueued · 24h Escrow Queue",
@@ -350,13 +368,25 @@ export function SpendSimulatorPanel({
 
   async function runSpend() {
     const cleanRecipient = recipient.trim();
-    if (!isAddress(cleanRecipient)) {
-      setFeedback({ tone: "bad", title: "Invalid recipient", detail: "Enter a valid 0x payee address." });
+    if (recipientProblem) {
+      setFeedback({ tone: "bad", title: "Invalid recipient", detail: recipientProblem });
       return;
     }
-    const amount = safeParseUnits(amountStr, tokenDecimals);
-    if (!amount || amount <= 0n) {
-      setFeedback({ tone: "bad", title: "Invalid amount", detail: "Enter a positive spend amount." });
+    if (!amountCheck.ok) {
+      setFeedback({
+        tone: "bad",
+        title: amountCheck.code === "empty" ? "Amount required" : "Invalid amount",
+        detail: amountCheck.message,
+      });
+      return;
+    }
+    const amount = amountCheck.value;
+    if (activeMode === "gasless-agent" && !demoAgent) {
+      setFeedback({
+        tone: "bad",
+        title: "Demo agent unavailable",
+        detail: "The browser-local demo key is still loading. Retry in a moment or use Direct Wallet mode.",
+      });
       return;
     }
 
@@ -491,6 +521,11 @@ export function SpendSimulatorPanel({
             type="button"
             className={`btn small ${activeMode === "gasless-agent" ? "" : "secondary"}`}
             disabled={!gaslessAvailable || busy}
+            title={
+              gaslessAvailable
+                ? "Sign an EIP-712 SpendIntent as the demo agent; the relayer pays gas."
+                : "Gasless relay is off (set RELAYER_PRIVATE_KEY in web/.env.local)."
+            }
             onClick={() => setMode("gasless-agent")}
           >
             Gasless EIP-712
@@ -518,7 +553,7 @@ export function SpendSimulatorPanel({
         </button>
         <button type="button" className="scenario-btn" onClick={() => applyScenario("queue")}>
           <strong>3. Over Per-Tx Cap</strong>
-          <span>Verified payee · 0.85 {tokenSymbol} → Queue</span>
+          <span>Verified payee · 0.85 {tokenSymbol} → Escrowed in 24h queue</span>
         </button>
       </div>
 
@@ -530,11 +565,19 @@ export function SpendSimulatorPanel({
             type="text"
             value={recipient}
             onChange={(e) => {
+              recipientTouchedRef.current = true;
               setRecipient(e.target.value);
               setVerdict(null);
             }}
             placeholder="0x..."
+            aria-invalid={recipient.length > 0 && Boolean(recipientProblem)}
+            aria-describedby={recipientProblem ? "recipient-error" : undefined}
           />
+          {recipient.length > 0 && recipientProblem && (
+            <span id="recipient-error" className="fine" style={{ color: "var(--bad)" }}>
+              {recipientProblem}
+            </span>
+          )}
         </label>
         <label className="field-label">
           Amount ({tokenSymbol})
@@ -546,7 +589,14 @@ export function SpendSimulatorPanel({
               setAmountStr(e.target.value);
               setVerdict(null);
             }}
+            aria-invalid={Boolean(amountProblem) && amountStr.length > 0}
+            aria-describedby={amountProblem ? "amount-error" : undefined}
           />
+          {amountStr.length > 0 && amountProblem && (
+            <span id="amount-error" className="fine" style={{ color: "var(--bad)" }}>
+              {amountProblem}
+            </span>
+          )}
         </label>
         <label className="field-label">
           Invoice / Reference
@@ -567,7 +617,7 @@ export function SpendSimulatorPanel({
         {busy
           ? "Evaluating Policy & Submitting…"
           : activeMode === "gasless-agent"
-            ? `Sign as Demo Agent (${short(demoAgent?.address ?? "")}) & Submit Gasless`
+            ? `Sign as Demo Agent (${demoAgent ? short(demoAgent.address) : "loading…"}) & Submit Gasless`
             : "Execute Spend via Connected Wallet"}
       </button>
 

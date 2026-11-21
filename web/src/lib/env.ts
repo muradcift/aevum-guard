@@ -51,7 +51,9 @@ const all: Record<NetworkKey, Network> = {
 const requested = (process.env.NEXT_PUBLIC_NETWORKS ?? "aevum,fork")
   .split(",")
   .map((k) => k.trim())
-  .filter((k): k is NetworkKey => k in all);
+  // Object.hasOwn, not `in`: values like "toString" would otherwise resolve to
+  // Object.prototype members and produce a broken Network object.
+  .filter((k) => Object.hasOwn(all, k)) as NetworkKey[];
 
 export const networks: [Network, ...Network[]] = (() => {
   const keys = [...new Set(requested)];

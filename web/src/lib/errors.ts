@@ -75,10 +75,10 @@ export function explain(error: unknown): string {
     if (/insufficient funds/i.test(error.message)) {
       return "Not enough tQDAY for gas. Claim free tokens in QDay Discord (/faucet) or use Gasless mode.";
     }
-    return error.shortMessage;
+    return error.shortMessage || error.message || "The request failed. Check the network and try again.";
   }
 
-  return error.message;
+  return error.message || "Something went wrong. Try again.";
 }
 
 function fullMessage(error: unknown, depth = 0): string {

@@ -7,7 +7,7 @@ import { useAccount, useConfig, useReadContract } from "wagmi";
 import { simulateContract, waitForTransactionReceipt, writeContract } from "wagmi/actions";
 import { aevumGuardAbi } from "@aevum-kit/aevum";
 import { explain } from "@/lib/errors";
-import { formatToken, safeParseUnits, short } from "@/lib/format";
+import { formatAmountInput, formatToken, parseAmountInput, short } from "@/lib/format";
 import type { Network } from "@/lib/env";
 import type { ActionFeedback, PolicyView } from "@/lib/vaultTypes";
 import { ActionFeedbackBox } from "./ActionFeedbackBox";
@@ -62,7 +62,16 @@ export function AgentMandatePanel({
     }
   }, [agentAddress, demoAgent, onAgentAddressChange]);
 
-  const validAgent = isAddress(agentAddress.trim()) ? (agentAddress.trim() as Address) : undefined;
+  const trimmedAgent = agentAddress.trim();
+  const zeroAgent = /^0x0{40}$/i.test(trimmedAgent);
+  const validAgent = !zeroAgent && isAddress(trimmedAgent) ? (trimmedAgent as Address) : undefined;
+  const agentProblem = !trimmedAgent
+    ? "Paste the agent address you want to authorize."
+    : zeroAgent
+      ? "Agent address cannot be the zero address."
+      : !validAgent
+        ? "Enter a valid agent address (0x + 40 hex characters)."
+        : null;
 
   const policyQuery = useReadContract({
     address: vaultAddress,
@@ -94,27 +103,87 @@ export function AgentMandatePanel({
   const policy = policyQuery.data as PolicyView | undefined;
   const remainingDaily = remainingDailyQuery.data as bigint | undefined;
 
+  // The mandate form must always describe the address currently being inspected:
+  // switching from a discovered on-chain agent to the demo key (or a typed
+  // address) reloads that agent's live limits exactly once.
+  const [prefilledAgent, setPrefilledAgent] = useState<string | null>(null);
+  useEffect(() => {
+    if (!validAgent || policyQuery.isPending) return;
+    const key = validAgent.toLowerCase();
+    if (prefilledAgent === key) return;
+    setPrefilledAgent(key);
+    setFeedback(null);
+    if (policy?.active) {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const hoursLeft =
+        policy.expiresAt > 0n
+          ? Math.max(1, Math.ceil(Number(policy.expiresAt - BigInt(nowSec)) / 3600))
+          : 0;
+      setLabel(policy.label ?? "");
+      setPerTxLimit(formatAmountInput(policy.perTxLimit, tokenDecimals));
+      setDailyLimit(formatAmountInput(policy.dailyLimit, tokenDecimals));
+      setTotalBudget(formatAmountInput(policy.totalBudget, tokenDecimals));
+      setExpiresHours(String(hoursLeft));
+      setAllowQueueOverflow(policy.allowQueueOverflow);
+    } else {
+      // No live mandate for this address: show a safe authorization template
+      // rather than the previous agent's numbers.
+      setLabel("");
+      setPerTxLimit("1.00");
+      setDailyLimit("3.00");
+      setTotalBudget("10.00");
+      setExpiresHours("0");
+      setAllowQueueOverflow(true);
+    }
+  }, [validAgent, policyQuery.isPending, policy, prefilledAgent, tokenDecimals]);
+
   const dailyUsedPct =
     policy && policy.dailyLimit > 0n && remainingDaily !== undefined
-      ? Math.min(100, Number(((policy.dailyLimit - remainingDaily) * 100n) / policy.dailyLimit))
+      ? Math.min(100, Math.max(0, Number(((policy.dailyLimit - remainingDaily) * 100n) / policy.dailyLimit)))
       : 0;
   const totalUsedPct =
     policy && policy.totalBudget > 0n
-      ? Math.min(100, Number((policy.spentTotal * 100n) / policy.totalBudget))
+      ? Math.min(100, Math.max(0, Number((policy.spentTotal * 100n) / policy.totalBudget)))
       : 0;
+
+  const perTxCheck = parseAmountInput(perTxLimit, tokenDecimals);
+  const dailyCheck = parseAmountInput(dailyLimit, tokenDecimals);
+  const totalCheck = parseAmountInput(totalBudget, tokenDecimals);
+  const expiryHours = Number(expiresHours.trim() || "0");
+  const expiryProblem =
+    expiresHours.trim() === ""
+      ? null
+      : !Number.isFinite(expiryHours) || expiryHours < 0
+        ? "Expiry must be a positive number of hours (0 = never)."
+        : null;
 
   async function savePolicy() {
     if (!address || !onChain || !validAgent) return;
-    const perTx = safeParseUnits(perTxLimit, tokenDecimals);
-    const daily = safeParseUnits(dailyLimit, tokenDecimals);
-    const total = safeParseUnits(totalBudget, tokenDecimals);
-    const hrs = Number(expiresHours.trim() || "0");
-
-    if (perTx === null || daily === null || total === null || Number.isNaN(hrs) || hrs < 0) {
-      setFeedback({ tone: "bad", title: "Invalid mandate values", detail: "Check token limits and expiry hours." });
+    if (agentProblem) {
+      setFeedback({ tone: "bad", title: "Invalid agent address", detail: agentProblem });
+      return;
+    }
+    if (!perTxCheck.ok || !dailyCheck.ok || !totalCheck.ok) {
+      setFeedback({
+        tone: "bad",
+        title: "Invalid mandate values",
+        detail: !perTxCheck.ok
+          ? `Per-tx limit: ${perTxCheck.message}`
+          : !dailyCheck.ok
+            ? `Daily limit: ${dailyCheck.message}`
+            : `Lifetime cap: ${(totalCheck as { message: string }).message}`,
+      });
+      return;
+    }
+    if (expiryProblem) {
+      setFeedback({ tone: "bad", title: "Invalid expiry", detail: expiryProblem });
       return;
     }
 
+    const perTx = perTxCheck.value;
+    const daily = dailyCheck.value;
+    const total = totalCheck.value;
+    const hrs = expiryHours;
     const expiresAt = hrs > 0 ? BigInt(Math.floor(Date.now() / 1000) + Math.round(hrs * 3600)) : 0n;
 
     setBusy(true);
@@ -195,10 +264,16 @@ export function AgentMandatePanel({
           </p>
           <h2>On-Chain Spend Guardrails</h2>
         </div>
-        {policy && (
-          <span className={`status-pill ${policy.active ? "good" : "bad"}`}>
-            {policy.active ? "MANDATE ACTIVE" : "NOT AUTHORIZED"}
+        {agentProblem ? (
+          <span className="status-pill info" title={agentProblem}>
+            NO AGENT SELECTED
           </span>
+        ) : (
+          policy && (
+            <span className={`status-pill ${policy.active ? "good" : "bad"}`}>
+              {policy.active ? "MANDATE ACTIVE" : "NOT AUTHORIZED"}
+            </span>
+          )
         )}
       </div>
 
@@ -249,7 +324,29 @@ export function AgentMandatePanel({
               onAgentAddressChange(e.target.value);
             }}
             placeholder="0x..."
+            aria-invalid={Boolean(agentProblem) && agentAddress.length > 0}
+            aria-describedby={agentProblem ? "agent-address-error" : undefined}
           />
+          {agentAddress.length > 0 && agentProblem && (
+            <span id="agent-address-error" className="fine" style={{ color: "var(--bad)" }}>
+              {agentProblem}
+            </span>
+          )}
+          {!agentAddress && agentProblem && (
+            <span id="agent-address-error" className="fine">
+              {agentProblem}
+            </span>
+          )}
+          {!agentProblem && policy && (
+            <span className="fine">
+              {policy.active
+                ? `Live mandate on this address · ${formatToken(policy.perTxLimit, tokenDecimals)} per tx · ${formatToken(
+                    policy.dailyLimit,
+                    tokenDecimals,
+                  )} daily`
+                : "This address has no active mandate on this vault yet."}
+            </span>
+          )}
         </label>
         <label className="field-label">
           Agent Label
@@ -257,19 +354,63 @@ export function AgentMandatePanel({
         </label>
         <label className="field-label">
           Per-Tx Limit ({tokenSymbol})
-          <input className="field" type="text" value={perTxLimit} onChange={(e) => setPerTxLimit(e.target.value)} />
+          <input
+            className="field"
+            type="text"
+            value={perTxLimit}
+            onChange={(e) => setPerTxLimit(e.target.value)}
+            aria-invalid={Boolean(perTxCheck.ok === false && perTxLimit.length > 0)}
+          />
+          {!perTxCheck.ok && perTxLimit.length > 0 && (
+            <span className="fine" style={{ color: "var(--bad)" }}>
+              {perTxCheck.message}
+            </span>
+          )}
         </label>
         <label className="field-label">
           Daily Limit ({tokenSymbol})
-          <input className="field" type="text" value={dailyLimit} onChange={(e) => setDailyLimit(e.target.value)} />
+          <input
+            className="field"
+            type="text"
+            value={dailyLimit}
+            onChange={(e) => setDailyLimit(e.target.value)}
+            aria-invalid={Boolean(dailyCheck.ok === false && dailyLimit.length > 0)}
+          />
+          {!dailyCheck.ok && dailyLimit.length > 0 && (
+            <span className="fine" style={{ color: "var(--bad)" }}>
+              {dailyCheck.message}
+            </span>
+          )}
         </label>
         <label className="field-label">
           Lifetime Cap ({tokenSymbol}, 0 = ∞)
-          <input className="field" type="text" value={totalBudget} onChange={(e) => setTotalBudget(e.target.value)} />
+          <input
+            className="field"
+            type="text"
+            value={totalBudget}
+            onChange={(e) => setTotalBudget(e.target.value)}
+            aria-invalid={Boolean(totalCheck.ok === false && totalBudget.length > 0)}
+          />
+          {!totalCheck.ok && totalBudget.length > 0 && (
+            <span className="fine" style={{ color: "var(--bad)" }}>
+              {totalCheck.message}
+            </span>
+          )}
         </label>
         <label className="field-label">
           Expiry (Hours, 0 = none)
-          <input className="field" type="text" value={expiresHours} onChange={(e) => setExpiresHours(e.target.value)} />
+          <input
+            className="field"
+            type="text"
+            value={expiresHours}
+            onChange={(e) => setExpiresHours(e.target.value)}
+            aria-invalid={Boolean(expiryProblem)}
+          />
+          {expiryProblem && (
+            <span className="fine" style={{ color: "var(--bad)" }}>
+              {expiryProblem}
+            </span>
+          )}
         </label>
       </div>
 

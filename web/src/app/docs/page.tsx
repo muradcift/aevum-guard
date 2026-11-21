@@ -66,7 +66,7 @@ export default function DocsPage() {
                 addresses (<code>keccak256(abi.encodePacked(label, payee))</code>). Unverified destinations revert deterministically.
               </li>
               <li>
-                <strong>Human-in-the-Loop Escalation Queue:</strong> Over-limit requests reserve funds in escrow for 24h (`Pending`) so the
+                <strong>Human-in-the-Loop Escalation Queue:</strong> Over-limit requests reserve funds in escrow for 24h (<code>Pending</code>) so the
                 owner can <code>approveRequest</code> or <code>rejectRequest</code> with 1 click.
               </li>
               <li>
@@ -247,6 +247,7 @@ export default function DocsPage() {
                 </text>
               </svg>
             </div>
+            <p className="fine flow-hint">Swipe horizontally to pan the full execution flow →</p>
           </section>
 
           <section id="aevum">

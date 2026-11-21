@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getAbiItem, type AbiEvent, type Address, type Hex, type PublicClient } from "viem";
 import { useAccount, useConfig, usePublicClient, useReadContract, useReadContracts } from "wagmi";
 import { simulateContract, waitForTransactionReceipt, writeContract } from "wagmi/actions";
-import { aevumGuardAbi, getLogsChunked, txUrl } from "@aevum-kit/aevum";
+import { aevumGuardAbi, getLogsChunked, MAX_LOG_RANGE, txUrl } from "@aevum-kit/aevum";
 import { explain } from "@/lib/errors";
-import { formatTimeRemaining, formatToken, short } from "@/lib/format";
+import { formatExpiry, formatToken, short } from "@/lib/format";
 import { dedupeSortLogs, launchRecentPlan, type RawLog } from "@/lib/launchWindow";
 import type { Network } from "@/lib/env";
 import type { ActionFeedback, SpendRequestView } from "@/lib/vaultTypes";
@@ -64,21 +64,53 @@ export function ApprovalAuditPanel({
 
   const [busyReq, setBusyReq] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
-  // Window mode: bigint = "last N blocks", "launch+recent" = deployBlock launch window + latest 3k.
+  // Window mode: bigint string = "last N blocks", "launch+recent" = deployBlock launch window + latest 3k.
   const [windowMode, setWindowMode] = useState<string>("launch+recent");
   const [progress, setProgress] = useState(0);
+  const [scanning, setScanning] = useState(false);
+  // Wall clock for TTL badges; re-renders every 30s so a request flips to
+  // "Expired" while the panel stays open instead of showing a stale countdown.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  // Bumped by the Refresh button so an explicit rescan is a *new* visible scan
+  // instead of a silent refetch of the current key.
+  const [manualScan, setManualScan] = useState(0);
+  // Every queryFn run gets a unique id. Progress callbacks from a superseded run
+  // (tab switch, window switch, refetch) are dropped so the bar can never move
+  // backwards, and only a user-visible scan is allowed to reset it to zero.
+  const scanRunRef = useRef(0);
+  const scanKeyRef = useRef("");
 
-  const windowBlocks = windowMode === "launch+recent" ? null : BigInt(windowMode);
-  const isLaunchRecent = windowMode === "launch+recent";
+  const canLaunchRecent = net.deployBlock !== undefined && net.deployBlock > 0n;
+  // "launch+recent" is the default, but it is meaningless (and would silently
+  // scan the whole chain) on networks where the deploy block is unknown.
+  const activeWindowMode = windowMode === "launch+recent" && !canLaunchRecent ? "3000" : windowMode;
+  const windowBlocks = activeWindowMode === "launch+recent" ? null : BigInt(activeWindowMode);
+  const isLaunchRecent = activeWindowMode === "launch+recent";
+  const scanSignature = [
+    net.chain.id,
+    vaultAddress,
+    vaultId.toString(),
+    activeWindowMode,
+    net.deployBlock?.toString() ?? "0",
+    refreshTick,
+    manualScan,
+  ].join("|");
 
   const nextReqQuery = useReadContract({
     address: vaultAddress,
     abi: aevumGuardAbi,
     functionName: "nextRequestId",
     chainId: net.chain.id,
+    // Keep the approval queue fresh without ever re-running the log scan.
+    query: { refetchInterval: 30_000, refetchIntervalInBackground: false },
   });
 
   const nextReqId = nextReqQuery.data ?? 1n;
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
   const reqIds: bigint[] = [];
   for (let id = nextReqId - 1n; id >= 1n && reqIds.length < 20; id--) {
     reqIds.push(id);
@@ -92,7 +124,7 @@ export function ApprovalAuditPanel({
       args: [id] as const,
       chainId: net.chain.id,
     })),
-    query: { enabled: reqIds.length > 0 },
+    query: { enabled: reqIds.length > 0, refetchInterval: 30_000, refetchIntervalInBackground: false },
   });
 
   const requests: SpendRequestView[] = (reqBatch.data ?? [])
@@ -127,14 +159,37 @@ export function ApprovalAuditPanel({
       net.chain.id,
       vaultAddress,
       vaultId.toString(),
-      windowMode,
+      activeWindowMode,
       net.deployBlock?.toString() ?? "0",
       refreshTick,
+      manualScan,
     ],
     enabled: Boolean(client),
+    // Log scans are expensive and read-only: only explicit user actions
+    // (window switch, Refresh, or a mutation) start a new one. Never on focus.
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    placeholderData: keepPreviousData,
     queryFn: async () => {
+      const runId = scanRunRef.current + 1;
+      scanRunRef.current = runId;
+      const isUserInitiatedScan = scanKeyRef.current !== scanSignature;
+      if (isUserInitiatedScan) {
+        scanKeyRef.current = scanSignature;
+        setProgress(0);
+        setScanning(true);
+      }
+      // Monotonic + stale-run-guarded progress: a newer scan owns the bar, and
+      // progress within one scan can only ever increase (0..100).
+      const publish = (pct: number) => {
+        if (runId !== scanRunRef.current) return;
+        const clamped = Math.min(100, Math.max(0, Number.isFinite(pct) ? Math.round(pct) : 0));
+        setProgress((prev) => (clamped > prev ? clamped : prev));
+      };
+
       const head = await client!.getBlockNumber();
-      const isLaunch = isLaunchRecent && net.deployBlock !== undefined && net.deployBlock > 0n;
+      const isLaunch = isLaunchRecent && canLaunchRecent;
       const plan = isLaunch ? launchRecentPlan(net.deployBlock, head) : null;
       const ranges = plan
         ? plan.ranges
@@ -146,7 +201,6 @@ export function ApprovalAuditPanel({
           ];
       const fromBlock = ranges[0]?.from ?? 0n;
       const caption = plan ? plan.label : `${fromBlock.toString()}–${head.toString()}`;
-      setProgress(0);
 
       const events = [
         { name: "SpendExecuted", kind: "Executed" },
@@ -157,12 +211,23 @@ export function ApprovalAuditPanel({
       ] as const;
 
       const entries: AuditEntry[] = [];
-      const totalChunks = ranges.length;
-      let chunkIdx = 0;
+      // Exact number of ≤1,000-block requests getLogsChunked will issue per
+      // range: floor((to - from) / MAX_LOG_RANGE) + 1 (0 for empty ranges).
+      // This must match the chunking loop in getLogsChunked so the progress
+      // denominator equals the real work across all ranges and event types.
+      const chunksPerRange = ranges.map((r) =>
+        r.to >= r.from ? Number((r.to - r.from) / MAX_LOG_RANGE) + 1 : 0,
+      );
+      const totalChunks = chunksPerRange.reduce((a, b) => a + b, 0);
+      const totalChunkUnits = Math.max(totalChunks * events.length, 1);
 
       for (let i = 0; i < events.length; i++) {
         const ev = events[i];
-        for (const range of ranges) {
+        let chunksBeforeRange = 0;
+        for (let j = 0; j < ranges.length; j++) {
+          const range = ranges[j];
+          const rangeChunks = chunksPerRange[j];
+          const baseUnits = i * totalChunks + chunksBeforeRange;
           const logs = await getLogsChunked(client!, {
             address: vaultAddress,
             event: getAbiItem({ abi: aevumGuardAbi, name: ev.name }) as AbiEvent,
@@ -170,9 +235,8 @@ export function ApprovalAuditPanel({
             fromBlock: range.from,
             toBlock: range.to,
             onProgress: (done, total) => {
-              const pct = total ? Number((done * 100n) / total) : 100;
-              const withinEvent = (chunkIdx + pct / 100) / totalChunks;
-              setProgress(Math.round(((i + withinEvent / 1) / events.length) * 100));
+              const frac = total > 0n ? Number(done) / Number(total) : 1;
+              publish(((baseUnits + frac * rangeChunks) / totalChunkUnits) * 100);
             },
           });
           for (const l of logs) {
@@ -200,7 +264,7 @@ export function ApprovalAuditPanel({
               txHash: l.transactionHash as Hex,
             });
           }
-          chunkIdx += 1;
+          chunksBeforeRange += rangeChunks;
         }
       }
 
@@ -213,8 +277,16 @@ export function ApprovalAuditPanel({
         })),
       ).map((x) => x.entry);
 
-      setProgress(100);
-      return { fromBlock, head, caption, entries: merged.slice(0, 30) };
+      publish(100);
+      if (runId === scanRunRef.current) setScanning(false);
+      return {
+        fromBlock,
+        head,
+        caption,
+        isLaunch,
+        windowMode: activeWindowMode,
+        entries: merged.slice(0, 30),
+      };
     },
   });
 
@@ -269,9 +341,9 @@ export function ApprovalAuditPanel({
           type="button"
           className="btn small secondary"
           onClick={() => {
-            void nextReqQuery.refetch();
-            void reqBatch.refetch();
-            void auditQuery.refetch();
+            setManualScan((n) => n + 1);
+            void nextReqQuery.refetch().catch(() => undefined);
+            void reqBatch.refetch().catch(() => undefined);
           }}
         >
           Refresh
@@ -289,16 +361,21 @@ export function ApprovalAuditPanel({
           <div className="stack" style={{ gap: 10 }}>
             {requests.map((r) => {
               const st = STATUS_LABEL[r.status] ?? { label: "Unknown", cls: "info" };
-              const expired = r.status === 1 && Number(r.expiresAt) <= Math.floor(Date.now() / 1000);
+              const exp = formatExpiry(r.expiresAt, nowMs);
+              const expired = r.status === 1 && exp.expired;
+              const expiresTitle = `Approval TTL ends ${new Date(Number(r.expiresAt) * 1000).toLocaleString("en-US")}`;
               return (
                 <div className="req-card" key={r.requestId.toString()}>
                   <div className="check-top" style={{ alignItems: "center" }}>
                     <span className="mono">
                       <strong>#{r.requestId.toString()}</strong> · {formatToken(r.amount, tokenDecimals)} {tokenSymbol}
                     </span>
-                    {r.status === 1 && expired ? (
-                      <span className="status-pill warn" title="24h approval TTL elapsed — cancel to refund escrow">
-                        Expired (24h TTL elapsed — refundable via cancelExpiredRequest)
+                    {expired ? (
+                      <span
+                        className="status-pill warn"
+                        title="24h approval TTL elapsed — cancel to refund the escrowed amount"
+                      >
+                        Expired
                       </span>
                     ) : (
                       <span className={`status-pill ${st.cls}`}>{st.label}</span>
@@ -309,13 +386,12 @@ export function ApprovalAuditPanel({
                     <code className="mono">{short(r.recipient)}</code> · {reasonLabel(r.reasonCode)}
                   </div>
                   <div className="fine">
-                    Memo: &ldquo;{r.memo}&rdquo; · Ref <code className="mono">{short(r.invoiceRef)}</code> ·{" "}
+                    Memo: &ldquo;{r.memo}&rdquo; · Ref <code className="mono">{short(r.invoiceRef)}</code>
                     {r.status === 1 ? (
-                      expired ? (
-                        <span style={{ color: "var(--warn)" }}>Expired — refund via “Cancel Expired”</span>
-                      ) : (
-                        formatTimeRemaining(r.expiresAt)
-                      )
+                      <span style={{ color: expired ? "var(--warn)" : undefined }} title={expiresTitle}>
+                        {" "}
+                        · {exp.text}
+                      </span>
                     ) : (
                       ""
                     )}
@@ -365,12 +441,12 @@ export function ApprovalAuditPanel({
         <div className="check-top" style={{ alignItems: "center" }}>
           <strong>On-Chain Audit Log (1,000-block chunked)</strong>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {net.deployBlock !== undefined && net.deployBlock > 0n && (
+            {canLaunchRecent && (
               <button
                 type="button"
-                className={`btn small ${windowMode === "launch+recent" ? "" : "secondary"}`}
+                className={`btn small ${activeWindowMode === "launch+recent" ? "" : "secondary"}`}
                 onClick={() => setWindowMode("launch+recent")}
-                title={`Scan the launch window (${net.deployBlock.toString()}) plus the latest 3,000 blocks`}
+                title={`Scan the launch window (${net.deployBlock!.toString()}) plus the latest 3,000 blocks`}
               >
                 Launch + Recent
               </button>
@@ -379,86 +455,109 @@ export function ApprovalAuditPanel({
               <button
                 key={w}
                 type="button"
-                className={`btn small ${windowMode === w.toString() ? "" : "secondary"}`}
+                className={`btn small ${activeWindowMode === w.toString() ? "" : "secondary"}`}
                 onClick={() => setWindowMode(w.toString())}
               >
-                {w / 1000}k blocks
+                {`${w / 1000}k blocks`}
               </button>
             ))}
           </div>
         </div>
 
-        {auditQuery.isFetching && (
+        {scanning && auditQuery.isFetching && (
           <div>
-            <div className="progress">
-              <span style={{ width: `${progress}%` }} />
+            <div
+              className="progress"
+              role="progressbar"
+              aria-label="Scanning audit log"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progress}
+            >
+              <span key={scanSignature} style={{ width: `${progress}%` }} />
             </div>
             <p className="fine" style={{ marginTop: 6 }}>
               Scanning{" "}
-              {windowMode === "launch+recent" && auditQuery.data
-                ? auditQuery.data.caption
-                : isLaunchRecent
-                  ? "launch + recent windows"
-                  : `${Number(windowMode).toLocaleString("en-US")} blocks`}{" "}
+              {isLaunchRecent
+                ? canLaunchRecent
+                  ? `launch window (${net.deployBlock!.toString()}) + latest 3k blocks`
+                  : "latest 3k blocks"
+                : `${Number(activeWindowMode).toLocaleString("en-US")} blocks`}{" "}
               in 1,000-block chunks… {progress}%
             </p>
           </div>
         )}
 
-        {auditQuery.error && <p className="fine">Could not load logs: {(auditQuery.error as Error).message}</p>}
-
-        {auditQuery.data && auditQuery.data.entries.length === 0 && !auditQuery.isFetching && (
-          <p className="fine">
-            No vault events in {auditQuery.data.caption} (blocks {auditQuery.data.fromBlock.toString()}–
-            {auditQuery.data.head.toString()}).
+        {auditQuery.error && (
+          <p className="fine" role="alert">
+            Could not load logs: {explain(auditQuery.error)}
           </p>
         )}
 
-        {auditQuery.data && auditQuery.data.entries.length > 0 && (
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Event</th>
-                  <th>Detail</th>
-                  <th className="right">Amount</th>
-                  <th className="right">Tx</th>
-                </tr>
-              </thead>
-              <tbody>
-                {auditQuery.data.entries.map((item) => (
-                  <tr key={`${item.txHash}-${item.logIndex}`}>
-                    <td>
-                      <span
-                        className={`status-pill ${
-                          item.kind === "Executed" || item.kind === "Approved" || item.kind === "Deposited"
-                            ? "good"
-                            : item.kind === "Queued"
-                              ? "warn"
-                              : "bad"
-                        }`}
-                      >
-                        {item.kind}
-                      </span>
-                    </td>
-                    <td style={{ whiteSpace: "normal", minWidth: 180 }}>{item.detail}</td>
-                    <td className="right num">
-                      {item.amount !== undefined ? `${formatToken(item.amount, tokenDecimals)} ${tokenSymbol}` : "—"}
-                    </td>
-                    <td className="right mono">
-                      {net.hasExplorer ? (
-                        <a href={txUrl(item.txHash)} target="_blank" rel="noreferrer">
-                          {short(item.txHash)} ↗
-                        </a>
-                      ) : (
-                        short(item.txHash)
-                      )}
-                    </td>
+        {auditQuery.data &&
+          auditQuery.data.windowMode === activeWindowMode &&
+          auditQuery.data.entries.length === 0 &&
+          !auditQuery.isFetching && (
+            <p className="fine">
+              {auditQuery.data.isLaunch
+                ? `No vault events in ${auditQuery.data.caption}.`
+                : `No vault events in blocks ${auditQuery.data.fromBlock.toString()}–${auditQuery.data.head.toString()}.`}
+            </p>
+          )}
+
+        {auditQuery.data && auditQuery.data.windowMode === activeWindowMode && auditQuery.data.entries.length > 0 && (
+          <>
+            <div
+              className="table-wrap audit-table-wrap"
+              role="region"
+              aria-label="On-chain audit log"
+              tabIndex={0}
+            >
+              <table className="data audit-table">
+                <thead>
+                  <tr>
+                    <th>Event</th>
+                    <th>Detail</th>
+                    <th className="right">Amount</th>
+                    <th className="right">Tx</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {auditQuery.data.entries.map((item) => (
+                    <tr key={`${item.txHash}-${item.logIndex}`}>
+                      <td>
+                        <span
+                          className={`status-pill ${
+                            item.kind === "Executed" || item.kind === "Approved" || item.kind === "Deposited"
+                              ? "good"
+                              : item.kind === "Queued"
+                                ? "warn"
+                                : "bad"
+                          }`}
+                        >
+                          {item.kind}
+                        </span>
+                      </td>
+                      <td className="audit-detail">{item.detail}</td>
+                      <td className="right num audit-amount">
+                        {item.amount !== undefined ? `${formatToken(item.amount, tokenDecimals)} ${tokenSymbol}` : "—"}
+                      </td>
+                      <td className="right mono audit-tx">
+                        {net.hasExplorer ? (
+                          <a href={txUrl(item.txHash)} target="_blank" rel="noreferrer">
+                            {short(item.txHash)} ↗
+                          </a>
+                        ) : (
+                          short(item.txHash)
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+            <p className="fine audit-scroll-hint">Scroll horizontally for the full detail and Tx links →</p>
+          </>
         )}
       </div>
     </section>

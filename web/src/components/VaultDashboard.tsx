@@ -180,11 +180,12 @@ export function VaultDashboard() {
   }, [discoveredActiveAgent, discoveryQuery.data?.agents, agentAddress, agentTouched]);
 
   function refreshAll() {
-    void gasBalance.refetch();
-    void tokenBalance.refetch();
-    void nextVaultIdQuery.refetch();
-    void vaultQuery.refetch();
-    void discoveryQuery.refetch();
+    void gasBalance.refetch().catch(() => undefined);
+    void tokenBalance.refetch().catch(() => undefined);
+    void nextVaultIdQuery.refetch().catch(() => undefined);
+    void vaultQuery.refetch().catch(() => undefined);
+    // refreshTick is part of the discovery query key, so bumping it refetches
+    // discovery once — no separate discoveryQuery.refetch() needed.
     setRefreshTick((t) => t + 1);
   }
 
@@ -247,12 +248,19 @@ export function VaultDashboard() {
             <button
               type="button"
               className="btn secondary small"
-              onClick={() =>
-                watchAsset({
-                  type: "ERC20",
-                  options: { address: token.address!, symbol: token.symbol, decimals: token.decimals },
-                })
-              }
+              onClick={() => {
+                // watchAsset can reject if the wallet prompt is dismissed; keep it handled.
+                void (async () => {
+                  try {
+                    await watchAsset({
+                      type: "ERC20",
+                      options: { address: token.address!, symbol: token.symbol, decimals: token.decimals },
+                    });
+                  } catch {
+                    // Wallet rejected or does not support watchAsset — nothing to surface.
+                  }
+                })();
+              }}
             >
               + Add {token.symbol} to Wallet
             </button>
@@ -416,6 +424,13 @@ export function VaultDashboard() {
               </p>
             )}
 
+            {(nextVaultIdQuery.error || vaultQuery.error) && (
+              <p className="fine" style={{ color: "var(--bad)" }} role="alert">
+                Could not read vault state from {net.label}:{" "}
+                {explain((nextVaultIdQuery.error ?? vaultQuery.error) as Error)}
+              </p>
+            )}
+
             <ActionFeedbackBox feedback={createFeedback} hasExplorer={net.hasExplorer} />
           </section>
 
@@ -462,7 +477,9 @@ export function VaultDashboard() {
                 demoAgent={demoAgent}
                 preferredPayee={preferredPayee ?? firstVerifiedPayee}
                 inspectedAgent={
-                  isAddress(agentAddress.trim()) ? (agentAddress.trim() as Address) : discoveredActiveAgent
+                  isAddress(agentAddress.trim()) && !/^0x0{40}$/i.test(agentAddress.trim())
+                    ? (agentAddress.trim() as Address)
+                    : discoveredActiveAgent
                 }
                 onMutated={refreshAll}
               />

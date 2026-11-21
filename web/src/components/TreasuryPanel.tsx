@@ -13,7 +13,13 @@ import {
   erc20Abi,
 } from "@aevum-kit/aevum";
 import { explain } from "@/lib/errors";
-import { formatToken, randomBytes32, safeParseUnits, short } from "@/lib/format";
+import {
+  formatToken,
+  parseAmountInput,
+  randomBytes32,
+  recipientError,
+  short,
+} from "@/lib/format";
 import type { Network } from "@/lib/env";
 import type { ActionFeedback, PayeeView, VaultView } from "@/lib/vaultTypes";
 import { ActionFeedbackBox } from "./ActionFeedbackBox";
@@ -73,7 +79,17 @@ export function TreasuryPanel({
   const gaslessAvailable = relayStatus.data?.enabled ?? false;
   const activeDepositMode = gaslessAvailable ? depositMode : "standard";
 
-  const inspectedPayee = isAddress(payeeInput.trim()) ? (payeeInput.trim() as Address) : undefined;
+  const payeeProblem = payeeInput.trim() ? recipientError(payeeInput) : null;
+  const inspectedPayee =
+    !payeeProblem && isAddress(payeeInput.trim()) ? (payeeInput.trim() as Address) : undefined;
+  const depositCheck = parseAmountInput(depositAmount, tokenDecimals);
+  const withdrawCheck = parseAmountInput(withdrawAmount, tokenDecimals);
+  const withdrawTargetProblem = withdrawTo.trim() ? recipientError(withdrawTo) : null;
+  // Payees verified during this session, minus anything the live on-chain scan
+  // already lists, so a chip never appears twice.
+  const extraPayees = knownPayees.filter(
+    (p) => !discoveredPayees?.some((d) => d.payee.toLowerCase() === p.toLowerCase()),
+  );
   const payeeCheck = useReadContract({
     address: vaultAddress,
     abi: aevumGuardAbi,
@@ -86,11 +102,15 @@ export function TreasuryPanel({
 
   async function runDeposit() {
     if (!address || !tokenAddress || !onChain) return;
-    const amount = safeParseUnits(depositAmount, tokenDecimals);
-    if (!amount || amount <= 0n) {
-      setFeedback({ tone: "bad", title: "Invalid amount", detail: "Enter a positive deposit amount." });
+    if (!depositCheck.ok) {
+      setFeedback({
+        tone: "bad",
+        title: depositCheck.code === "empty" ? "Deposit amount required" : "Invalid deposit amount",
+        detail: depositCheck.message,
+      });
       return;
     }
+    const amount = depositCheck.value;
 
     setBusy(true);
     setFeedback(null);
@@ -161,7 +181,7 @@ export function TreasuryPanel({
       if (receipt.status !== "success") throw new Error("Deposit transaction reverted.");
       setFeedback({
         tone: "good",
-        title: `Deposited ${depositAmount} ${tokenSymbol}`,
+        title: `Deposited ${formatToken(amount, tokenDecimals)} ${tokenSymbol}`,
         detail:
           activeDepositMode === "gasless"
             ? "Settled gaslessly via EIP-3009 ReceiveWithAuthorization."
@@ -178,12 +198,20 @@ export function TreasuryPanel({
 
   async function runWithdraw() {
     if (!address || !onChain) return;
-    const amount = safeParseUnits(withdrawAmount, tokenDecimals);
-    const target = withdrawTo.trim() ? withdrawTo.trim() : address;
-    if (!amount || amount <= 0n || !isAddress(target)) {
-      setFeedback({ tone: "bad", title: "Invalid withdrawal", detail: "Check destination address and amount." });
+    if (!withdrawCheck.ok) {
+      setFeedback({
+        tone: "bad",
+        title: withdrawCheck.code === "empty" ? "Withdrawal amount required" : "Invalid withdrawal amount",
+        detail: withdrawCheck.message,
+      });
       return;
     }
+    const target = withdrawTo.trim() ? withdrawTo.trim() : address;
+    if (withdrawTargetProblem) {
+      setFeedback({ tone: "bad", title: "Invalid withdrawal destination", detail: withdrawTargetProblem });
+      return;
+    }
+    const amount = withdrawCheck.value;
 
     setBusy(true);
     setFeedback(null);
@@ -201,7 +229,7 @@ export function TreasuryPanel({
       if (receipt.status !== "success") throw new Error("Withdrawal reverted.");
       setFeedback({
         tone: "good",
-        title: `Withdrew ${withdrawAmount} ${tokenSymbol}`,
+        title: `Withdrew ${formatToken(amount, tokenDecimals)} ${tokenSymbol}`,
         detail: `Sent safely to ${short(target)}. Available even when vault is paused.`,
         txHash: hash,
       });
@@ -279,6 +307,10 @@ export function TreasuryPanel({
 
   async function updatePayee(approved: boolean) {
     if (!address || !onChain || !inspectedPayee) return;
+    if (payeeProblem) {
+      setFeedback({ tone: "bad", title: "Invalid payee address", detail: payeeProblem });
+      return;
+    }
     setBusy(true);
     setFeedback(null);
     try {
@@ -299,7 +331,7 @@ export function TreasuryPanel({
         );
         onPayeeSelected?.(inspectedPayee);
       }
-      payeeCheck.refetch();
+      await payeeCheck.refetch().catch(() => undefined);
       setFeedback({
         tone: approved ? "good" : "warn",
         title: approved ? `Payee Verified: ${label}` : `Payee Revoked: ${short(inspectedPayee)}`,
@@ -374,24 +406,32 @@ export function TreasuryPanel({
             </button>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <input
-            className="field"
-            style={{ flex: "1 1 140px" }}
-            type="text"
-            value={depositAmount}
-            onChange={(e) => setDepositAmount(e.target.value)}
-            placeholder="Amount e.g. 2.0"
-            aria-label="Deposit amount"
-          />
-          <button
-            type="button"
-            className="btn"
-            disabled={!onChain || !tokenAddress || busy}
-            onClick={() => void runDeposit()}
-          >
-            {activeDepositMode === "gasless" ? "Sign & Deposit Gasless" : "Approve & Deposit"}
-          </button>
+        <div className="stack" style={{ gap: 4 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <input
+              className="field"
+              style={{ flex: "1 1 140px" }}
+              type="text"
+              value={depositAmount}
+              onChange={(e) => setDepositAmount(e.target.value)}
+              placeholder="Amount e.g. 2.0"
+              aria-label="Deposit amount"
+              aria-invalid={!depositCheck.ok && depositAmount.length > 0}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={!onChain || !tokenAddress || busy}
+              onClick={() => void runDeposit()}
+            >
+              {activeDepositMode === "gasless" ? "Sign & Deposit Gasless" : "Approve & Deposit"}
+            </button>
+          </div>
+          {!depositCheck.ok && depositAmount.length > 0 && (
+            <span className="fine" style={{ color: "var(--bad)" }}>
+              {depositCheck.message}
+            </span>
+          )}
         </div>
         {!gaslessAvailable && (
           <p className="fine">Gasless EIP-3009 relayer inactive (set RELAYER_PRIVATE_KEY in web/.env.local). Standard deposit is ready.</p>
@@ -412,33 +452,47 @@ export function TreasuryPanel({
             {vault.paused ? "Unfreeze Vault" : "Emergency Freeze"}
           </button>
         </div>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <input
-            className="field"
-            style={{ flex: "0.7 1 110px" }}
-            type="text"
-            value={withdrawAmount}
-            onChange={(e) => setWithdrawAmount(e.target.value)}
-            placeholder="Amount"
-            aria-label="Withdraw amount"
-          />
-          <input
-            className="field"
-            style={{ flex: "1.5 1 200px" }}
-            type="text"
-            value={withdrawTo}
-            onChange={(e) => setWithdrawTo(e.target.value)}
-            placeholder={address ? `To owner (${short(address)})` : "Destination 0x..."}
-            aria-label="Withdraw destination"
-          />
-          <button
-            type="button"
-            className="btn secondary"
-            disabled={!onChain || !isOwner || busy}
-            onClick={() => void runWithdraw()}
-          >
-            Withdraw
-          </button>
+        <div className="stack" style={{ gap: 4 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <input
+              className="field"
+              style={{ flex: "0.7 1 110px" }}
+              type="text"
+              value={withdrawAmount}
+              onChange={(e) => setWithdrawAmount(e.target.value)}
+              placeholder="Amount"
+              aria-label="Withdraw amount"
+              aria-invalid={!withdrawCheck.ok && withdrawAmount.length > 0}
+            />
+            <input
+              className="field"
+              style={{ flex: "1.5 1 200px" }}
+              type="text"
+              value={withdrawTo}
+              onChange={(e) => setWithdrawTo(e.target.value)}
+              placeholder={address ? `To owner (${short(address)})` : "Destination 0x..."}
+              aria-label="Withdraw destination"
+              aria-invalid={Boolean(withdrawTargetProblem)}
+            />
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={!onChain || !isOwner || busy}
+              onClick={() => void runWithdraw()}
+            >
+              Withdraw
+            </button>
+          </div>
+          {!withdrawCheck.ok && withdrawAmount.length > 0 && (
+            <span className="fine" style={{ color: "var(--bad)" }}>
+              {withdrawCheck.message}
+            </span>
+          )}
+          {withdrawTargetProblem && (
+            <span className="fine" style={{ color: "var(--bad)" }}>
+              {withdrawTargetProblem}
+            </span>
+          )}
         </div>
         <p className="fine">Withdraw works even while frozen — owner funds can never be trapped inside the contract.</p>
       </div>
@@ -512,7 +566,13 @@ export function TreasuryPanel({
               value={payeeInput}
               onChange={(e) => setPayeeInput(e.target.value)}
               placeholder="0x..."
+              aria-invalid={Boolean(payeeProblem)}
             />
+            {payeeProblem && (
+              <span className="fine" style={{ color: "var(--bad)" }}>
+                {payeeProblem}
+              </span>
+            )}
           </label>
           <label className="field-label">
             Verified Legal / Service Label
@@ -531,6 +591,13 @@ export function TreasuryPanel({
             type="button"
             className="btn small"
             disabled={!onChain || !isOwner || !inspectedPayee || busy}
+            title={
+              !isOwner
+                ? "Only the vault owner can change the payee allowlist."
+                : !inspectedPayee
+                  ? "Enter a valid payee address first."
+                  : "Bind this address as a verified payee on-chain."
+            }
             onClick={() => void updatePayee(true)}
           >
             Verify &amp; Allow Payee
@@ -538,7 +605,12 @@ export function TreasuryPanel({
           <button
             type="button"
             className="btn small ghost"
-            disabled={!onChain || !isOwner || !inspectedPayee || busy}
+            disabled={!onChain || !isOwner || !inspectedPayee || !payeeData?.approved || busy}
+            title={
+              !payeeData?.approved
+                ? "This address is not currently a verified payee."
+                : "Remove this address from the verified payee allowlist."
+            }
             onClick={() => void updatePayee(false)}
           >
             Revoke Payee
@@ -549,11 +621,12 @@ export function TreasuryPanel({
               {short(payeeData.confirmationHash)}
             </span>
           )}
+          {inspectedPayee && payeeCheck.isFetching && <span className="fine">Checking on-chain status…</span>}
         </div>
 
-        {knownPayees.length > 0 && (
+        {extraPayees.length > 0 && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {knownPayees.map((p) => (
+            {extraPayees.map((p) => (
               <button
                 key={p}
                 type="button"

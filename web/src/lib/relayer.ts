@@ -87,8 +87,11 @@ export function releaseInFlight(key: string): void {
 export function clientIp(req: Request): string {
   const trusted = process.env.TRUSTED_IP_HEADER?.trim().toLowerCase();
   if (trusted) return req.headers.get(trusted)?.split(",")[0]?.trim() || "unknown";
+  // Left-most X-Forwarded-For entry is the original client (Vercel and most
+  // proxies append). Using the last entry would collapse every visitor onto the
+  // proxy IP and trip the per-IP limit for everyone.
   const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",").at(-1)?.trim() || "unknown";
+  if (xff) return xff.split(",")[0]?.trim() || "unknown";
   return req.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
