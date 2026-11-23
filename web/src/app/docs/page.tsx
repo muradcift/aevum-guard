@@ -252,12 +252,13 @@ export default function DocsPage() {
 
           <section id="aevum">
             <h2>3. QDay Aevum Testnet Compliance</h2>
-            <div className="table-wrap">
+            <div className="table-wrap docs-table-wrap" role="region" aria-label="QDay Aevum Testnet compliance" tabIndex={0}>
               <table className="data docs-table">
                 <tbody>
                   <tr><th scope="row">Chain ID</th><td><code>44005</code> (QDay Aevum Testnet)</td></tr>
                   <tr><th scope="row">HTTPS RPC</th><td><code>https://rpc-test.qday.info</code> (no WebSocket)</td></tr>
                   <tr><th scope="row">tUSD8 Token</th><td><code>{TUSD8_ADDRESS}</code> (6 decimals, EIP-3009 v2)</td></tr>
+                  <tr><th scope="row">AevumGuardVault</th><td><code>0x4E5Ed4Dc7E5e525f4D77c2cC2749870De9f6851e</code> (deploy block <code>3685765</code>)</td></tr>
                   <tr><th scope="row">EVM Version</th><td>Pinned to <code>shanghai</code> (verified with <code>tools/check-shanghai.mjs</code>)</td></tr>
                   <tr><th scope="row">Audit Log Sync</th><td>Uses <code>getLogsChunked</code> (1,000-block chunks) matching Aevum RPC cap</td></tr>
                   <tr><th scope="row">Challenge Page</th><td><a href={HACKATHON_URL} target="_blank" rel="noreferrer">Aevum Builder Challenge #1 on DoraHacks</a></td></tr>

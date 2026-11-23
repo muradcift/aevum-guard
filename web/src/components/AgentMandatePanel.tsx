@@ -148,7 +148,11 @@ export function AgentMandatePanel({
 
   const perTxCheck = parseAmountInput(perTxLimit, tokenDecimals);
   const dailyCheck = parseAmountInput(dailyLimit, tokenDecimals);
-  const totalCheck = parseAmountInput(totalBudget, tokenDecimals);
+  const parsedTotalBudget = parseAmountInput(totalBudget, tokenDecimals);
+  const totalCheck =
+    !parsedTotalBudget.ok && parsedTotalBudget.code === "zero"
+      ? { ok: true as const, value: 0n }
+      : parsedTotalBudget;
   const expiryHours = Number(expiresHours.trim() || "0");
   const expiryProblem =
     expiresHours.trim() === ""

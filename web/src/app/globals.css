@@ -279,9 +279,11 @@ table.data.audit-table td.audit-event .status-pill { white-space: nowrap; }
 }
 pre.code { margin: 0; padding: 16px 18px; background: #0a0b0e; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; color: var(--text-2); }
 pre.code code { font-size: inherit; white-space: pre; }
-table.data.docs-table th[scope="row"] { width: 1%; text-transform: none; letter-spacing: 0; font-size: 14px; white-space: normal; }
-table.data.docs-table td { white-space: normal; color: var(--text-2); line-height: 1.55; vertical-align: top; overflow-wrap: anywhere; }
-table.data.docs-table td code { overflow-wrap: anywhere; }
+.docs-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+table.data.docs-table { min-width: 560px; table-layout: fixed; }
+table.data.docs-table th[scope="row"] { width: 160px; min-width: 140px; text-transform: none; letter-spacing: 0; font-size: 14px; white-space: nowrap; }
+table.data.docs-table td { min-width: 360px; white-space: normal; color: var(--text-2); line-height: 1.55; vertical-align: top; overflow-wrap: anywhere; }
+table.data.docs-table td code { overflow-wrap: anywhere; word-break: break-word; }
 table.data.docs-table.wide td:first-child { white-space: nowrap; }
 .docs-table code.wrap { overflow-wrap: anywhere; }
 @media (max-width: 560px) {

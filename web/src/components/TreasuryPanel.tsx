@@ -392,7 +392,7 @@ export function TreasuryPanel({
               className={`btn small ${activeDepositMode === "gasless" ? "" : "secondary"}`}
               disabled={!gaslessAvailable || busy}
               onClick={() => setDepositMode("gasless")}
-              title={gaslessAvailable ? "Sign EIP-3009 off-chain; relayer pays tQDAY" : "Configure RELAYER_PRIVATE_KEY to enable"}
+              title={gaslessAvailable ? "Sign EIP-3009 off-chain; relayer pays tQDAY" : "Hosted gasless relayer is paused on this public demo; use Standard deposit."}
             >
               Gasless EIP-3009
             </button>
@@ -434,7 +434,7 @@ export function TreasuryPanel({
           )}
         </div>
         {!gaslessAvailable && (
-          <p className="fine">Gasless EIP-3009 relayer inactive (set RELAYER_PRIVATE_KEY in web/.env.local). Standard deposit is ready.</p>
+          <p className="fine">Hosted gasless relayer is paused on this public demo. Standard deposit and zero-wallet Dry-Run are active.</p>
         )}
       </div>
 

@@ -429,7 +429,7 @@ Optional server-side variable: `RELAYER_PRIVATE_KEY` (enables gasless relay endp
 | Demo AI Agent (0 tQDAY) | [`0xCE45f546D53746acabB6FB34c87AFE6433A83b3a`](https://explorer-test.qday.info/address/0xCE45f546D53746acabB6FB34c87AFE6433A83b3a) |
 | Verified Vendor | [`0x5b0C9bE853C8cafDC9CA914744eEC5e486aB1260`](https://explorer-test.qday.info/address/0x5b0C9bE853C8cafDC9CA914744eEC5e486aB1260) |
 
-### Verifiable Live Aevum Testnet Transactions
+### Verifiable Live Aevum Testnet Transactions (10)
 
 | Step | Action | Block | Explorer Tx |
 |---|---|---|---|
@@ -441,7 +441,8 @@ Optional server-side variable: `RELAYER_PRIVATE_KEY` (enables gasless relay endp
 | 5 | `executeSpendWithSignature` — **Gasless EIP-712 Auto-Approved** (`0.50 tUSD8`) | `3685844` | [`0xc334…83c3`](https://explorer-test.qday.info/tx/0xc3348f77a546ef24b98a51237403c3aee7de03b52b95e77792cad823129483c3) |
 | 6 | `executeSpendWithSignature` — **Over-Limit Queued** Req #1 (`1.10 tUSD8`) | `3685851` | [`0x316b…41ef`](https://explorer-test.qday.info/tx/0x316b0dcbf8626c87ef7f9d7a7652a247819e3bfea6cbc5b6657ddc51768f41ef) |
 | 7 | `approveRequest(1)` — **Human-in-the-Loop Approved & Settled** (`1.10 tUSD8`) | `3685857` | [`0x9ee6…66b1`](https://explorer-test.qday.info/tx/0x9ee6700cabd1ef3772f7d4e6101ef0efb6f22a48d088d0cf12d2da82271d66b1) |
-| 8 | `executeSpendWithSignature` — **Over-Limit Queued** Req #2 (`0.90 tUSD8`, Pending) | `3685863` | [`0x3937…503f`](https://explorer-test.qday.info/tx/0x39372b3fb5fd3f2679ab946b05b24512b7e3d49141f107ecca5fa82d84a3503f) |
+| 8 | `executeSpendWithSignature` — **Over-Limit Queued** Req #2 (24h TTL expired — escrowed 0.90 tUSD8 refundable via `cancelExpiredRequest`) | `3685863` | [`0x3937…503f`](https://explorer-test.qday.info/tx/0x39372b3fb5fd3f2679ab946b05b24512b7e3d49141f107ecca5fa82d84a3503f) |
+| 9 | Standard `deposit(1, 1.00 tUSD8)` — Vault #1 liquidity: `1.50 tUSD8` available + `0.90 tUSD8` reserved = `2.40 tUSD8` | `3758104` | [`0x40a6…691e`](https://explorer-test.qday.info/tx/0x40a65fa4f6c47bce788125e4b717cc817988501f8aaa2b3176bbc4256397c691) |
 
 ---
 

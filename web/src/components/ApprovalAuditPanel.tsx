@@ -153,6 +153,19 @@ export function ApprovalAuditPanel({
       return Number(b.requestId - a.requestId);
     });
 
+  const activePendingCount = requests.filter(
+    (r) => r.status === 1 && !formatExpiry(r.expiresAt, nowMs).expired,
+  ).length;
+  const expiredCount = requests.filter((r) => r.status === 1 && formatExpiry(r.expiresAt, nowMs).expired).length;
+  const queueCountLabel =
+    activePendingCount > 0 && expiredCount > 0
+      ? `${activePendingCount} pending · ${expiredCount} expired`
+      : activePendingCount > 0
+        ? `${activePendingCount} pending`
+        : expiredCount > 0
+          ? `${expiredCount} expired · 0 active`
+          : "0 pending";
+
   const auditQuery = useQuery({
     queryKey: [
       "vault-audit",
@@ -188,105 +201,109 @@ export function ApprovalAuditPanel({
         setProgress((prev) => (clamped > prev ? clamped : prev));
       };
 
-      const head = await client!.getBlockNumber();
-      const isLaunch = isLaunchRecent && canLaunchRecent;
-      const plan = isLaunch ? launchRecentPlan(net.deployBlock, head) : null;
-      const ranges = plan
-        ? plan.ranges
-        : [
-            {
-              from: windowBlocks !== null && head > windowBlocks ? head - windowBlocks + 1n : 0n,
-              to: head,
-            },
-          ];
-      const fromBlock = ranges[0]?.from ?? 0n;
-      const caption = plan ? plan.label : `${fromBlock.toString()}–${head.toString()}`;
+      try {
+        const head = await client!.getBlockNumber();
+        const isLaunch = isLaunchRecent && canLaunchRecent;
+        const plan = isLaunch ? launchRecentPlan(net.deployBlock, head) : null;
+        const ranges = plan
+          ? plan.ranges
+          : [
+              {
+                from: windowBlocks !== null && head > windowBlocks ? head - windowBlocks + 1n : 0n,
+                to: head,
+              },
+            ];
+        const fromBlock = ranges[0]?.from ?? 0n;
+        const caption = plan ? plan.label : `${fromBlock.toString()}–${head.toString()}`;
 
-      const events = [
-        { name: "SpendExecuted", kind: "Executed" },
-        { name: "SpendQueued", kind: "Queued" },
-        { name: "RequestApproved", kind: "Approved" },
-        { name: "RequestRejected", kind: "Rejected" },
-        { name: "Deposited", kind: "Deposited" },
-      ] as const;
+        const events = [
+          { name: "SpendExecuted", kind: "Executed" },
+          { name: "SpendQueued", kind: "Queued" },
+          { name: "RequestApproved", kind: "Approved" },
+          { name: "RequestRejected", kind: "Rejected" },
+          { name: "Deposited", kind: "Deposited" },
+        ] as const;
 
-      const entries: AuditEntry[] = [];
-      // Exact number of ≤1,000-block requests getLogsChunked will issue per
-      // range: floor((to - from) / MAX_LOG_RANGE) + 1 (0 for empty ranges).
-      // This must match the chunking loop in getLogsChunked so the progress
-      // denominator equals the real work across all ranges and event types.
-      const chunksPerRange = ranges.map((r) =>
-        r.to >= r.from ? Number((r.to - r.from) / MAX_LOG_RANGE) + 1 : 0,
-      );
-      const totalChunks = chunksPerRange.reduce((a, b) => a + b, 0);
-      const totalChunkUnits = Math.max(totalChunks * events.length, 1);
+        const entries: AuditEntry[] = [];
+        // Exact number of ≤1,000-block requests getLogsChunked will issue per
+        // range: floor((to - from) / MAX_LOG_RANGE) + 1 (0 for empty ranges).
+        // This must match the chunking loop in getLogsChunked so the progress
+        // denominator equals the real work across all ranges and event types.
+        const chunksPerRange = ranges.map((r) =>
+          r.to >= r.from ? Number((r.to - r.from) / MAX_LOG_RANGE) + 1 : 0,
+        );
+        const totalChunks = chunksPerRange.reduce((a, b) => a + b, 0);
+        const totalChunkUnits = Math.max(totalChunks * events.length, 1);
 
-      for (let i = 0; i < events.length; i++) {
-        const ev = events[i];
-        let chunksBeforeRange = 0;
-        for (let j = 0; j < ranges.length; j++) {
-          const range = ranges[j];
-          const rangeChunks = chunksPerRange[j];
-          const baseUnits = i * totalChunks + chunksBeforeRange;
-          const logs = await getLogsChunked(client!, {
-            address: vaultAddress,
-            event: getAbiItem({ abi: aevumGuardAbi, name: ev.name }) as AbiEvent,
-            args: { vaultId },
-            fromBlock: range.from,
-            toBlock: range.to,
-            onProgress: (done, total) => {
-              const frac = total > 0n ? Number(done) / Number(total) : 1;
-              publish(((baseUnits + frac * rangeChunks) / totalChunkUnits) * 100);
-            },
-          });
-          for (const l of logs) {
-            const args = (l as { args?: Record<string, unknown> }).args ?? {};
-            let detail = "";
-            let amount: bigint | undefined;
-            if (ev.kind === "Executed") {
-              amount = args.amount as bigint;
-              detail = `${short(String(args.agent ?? ""))} → ${short(String(args.recipient ?? ""))} · "${String(args.memo ?? "")}"`;
-            } else if (ev.kind === "Queued") {
-              amount = args.amount as bigint;
-              detail = `Req #${String(args.requestId ?? "")} → ${short(String(args.recipient ?? ""))} (${reasonLabel(Number(args.reasonCode ?? 1))})`;
-            } else if (ev.kind === "Approved" || ev.kind === "Rejected") {
-              detail = `Req #${String(args.requestId ?? "")} by ${short(String(args.approver ?? ""))}`;
-            } else if (ev.kind === "Deposited") {
-              amount = args.amount as bigint;
-              detail = `From ${short(String(args.from ?? ""))} (${args.gasless ? "Gasless EIP-3009" : "Standard"})`;
-            }
-            entries.push({
-              kind: ev.kind,
-              detail,
-              amount,
-              blockNumber: l.blockNumber ?? 0n,
-              logIndex: l.logIndex ?? 0,
-              txHash: l.transactionHash as Hex,
+        for (let i = 0; i < events.length; i++) {
+          const ev = events[i];
+          let chunksBeforeRange = 0;
+          for (let j = 0; j < ranges.length; j++) {
+            const range = ranges[j];
+            const rangeChunks = chunksPerRange[j];
+            const baseUnits = i * totalChunks + chunksBeforeRange;
+            const logs = await getLogsChunked(client!, {
+              address: vaultAddress,
+              event: getAbiItem({ abi: aevumGuardAbi, name: ev.name }) as AbiEvent,
+              args: { vaultId },
+              fromBlock: range.from,
+              toBlock: range.to,
+              onProgress: (done, total) => {
+                const completedChunks =
+                  total > 0n ? Number((done + MAX_LOG_RANGE - 1n) / MAX_LOG_RANGE) : rangeChunks;
+                publish(((baseUnits + Math.min(rangeChunks, completedChunks)) / totalChunkUnits) * 100);
+              },
             });
+            for (const l of logs) {
+              const args = (l as { args?: Record<string, unknown> }).args ?? {};
+              let detail = "";
+              let amount: bigint | undefined;
+              if (ev.kind === "Executed") {
+                amount = args.amount as bigint;
+                detail = `${short(String(args.agent ?? ""))} → ${short(String(args.recipient ?? ""))} · "${String(args.memo ?? "")}"`;
+              } else if (ev.kind === "Queued") {
+                amount = args.amount as bigint;
+                detail = `Req #${String(args.requestId ?? "")} → ${short(String(args.recipient ?? ""))} (${reasonLabel(Number(args.reasonCode ?? 1))})`;
+              } else if (ev.kind === "Approved" || ev.kind === "Rejected") {
+                detail = `Req #${String(args.requestId ?? "")} by ${short(String(args.approver ?? ""))}`;
+              } else if (ev.kind === "Deposited") {
+                amount = args.amount as bigint;
+                detail = `From ${short(String(args.from ?? ""))} (${args.gasless ? "Gasless EIP-3009" : "Standard"})`;
+              }
+              entries.push({
+                kind: ev.kind,
+                detail,
+                amount,
+                blockNumber: l.blockNumber ?? 0n,
+                logIndex: l.logIndex ?? 0,
+                txHash: l.transactionHash as Hex,
+              });
+            }
+            chunksBeforeRange += rangeChunks;
           }
-          chunksBeforeRange += rangeChunks;
         }
+
+        const merged = dedupeSortLogs(
+          entries.map((e) => ({
+            blockNumber: e.blockNumber,
+            logIndex: e.logIndex,
+            transactionHash: e.txHash,
+            entry: e,
+          })),
+        ).map((x) => x.entry);
+
+        publish(100);
+        return {
+          fromBlock,
+          head,
+          caption,
+          isLaunch,
+          windowMode: activeWindowMode,
+          entries: merged.slice(0, 30),
+        };
+      } finally {
+        if (scanRunRef.current === runId) setScanning(false);
       }
-
-      const merged = dedupeSortLogs(
-        entries.map((e) => ({
-          blockNumber: e.blockNumber,
-          logIndex: e.logIndex,
-          transactionHash: e.txHash,
-          entry: e,
-        })),
-      ).map((x) => x.entry);
-
-      publish(100);
-      if (runId === scanRunRef.current) setScanning(false);
-      return {
-        fromBlock,
-        head,
-        caption,
-        isLaunch,
-        windowMode: activeWindowMode,
-        entries: merged.slice(0, 30),
-      };
     },
   });
 
@@ -354,7 +371,7 @@ export function ApprovalAuditPanel({
 
       {/* Approval Queue */}
       <div className="stack" style={{ gap: 10 }}>
-        <strong>Approval Queue ({requests.filter((r) => r.status === 1).length} pending)</strong>
+        <strong>Approval Queue ({queueCountLabel})</strong>
         {requests.length === 0 ? (
           <p className="fine">No spend requests queued for Vault #{vaultId.toString()} yet.</p>
         ) : (

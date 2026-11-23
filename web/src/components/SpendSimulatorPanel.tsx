@@ -235,6 +235,8 @@ export function SpendSimulatorPanel({
       }
       checks.push({ name: "Agent Mandate", outcome: "pass", detail: "Active" });
       const nowSec = BigInt(Math.floor(Date.now() / 1000));
+      const currentDay = nowSec / 86400n;
+      const effectiveSpentToday = currentDay > policy.lastSpendDay ? 0n : policy.spentToday;
       if (policy.expiresAt !== 0n && nowSec > policy.expiresAt) {
         checks.push({ name: "Mandate expiry", outcome: "revert", detail: "PolicyExpired()" });
         setVerdict({
@@ -308,7 +310,8 @@ export function SpendSimulatorPanel({
 
       // 6. Per-tx + daily limit → instant vs escalate
       const exceedsPerTx = amount > policy.perTxLimit;
-      const exceedsDaily = policy.spentToday + amount > policy.dailyLimit;
+      const projectedDaily = effectiveSpentToday + amount;
+      const exceedsDaily = projectedDaily > policy.dailyLimit;
       checks.push({
         name: "Per-tx limit",
         outcome: exceedsPerTx ? "escalate" : "pass",
@@ -317,7 +320,7 @@ export function SpendSimulatorPanel({
       checks.push({
         name: "Daily limit",
         outcome: exceedsDaily ? "escalate" : "pass",
-        detail: `${formatToken(policy.spentToday + amount, tokenDecimals)} vs ${formatToken(policy.dailyLimit, tokenDecimals)} daily cap`,
+        detail: `${formatToken(projectedDaily, tokenDecimals)} vs ${formatToken(policy.dailyLimit, tokenDecimals)} daily cap`,
       });
 
       if (!exceedsPerTx && !exceedsDaily) {
@@ -346,8 +349,11 @@ export function SpendSimulatorPanel({
         outcome: "escalate",
         detail: "allowQueueOverflow = true",
       });
-      const overLimitNote =
-        "Amount exceeds the per-tx limit, so it is escrowed in the 24h human approval queue instead of being paid out.";
+      const overLimitNote = exceedsPerTx && exceedsDaily
+        ? "Amount exceeds both the per-tx and daily limits, so it is escrowed in the 24h human approval queue instead of being paid out."
+        : exceedsPerTx
+          ? "Amount exceeds the per-tx limit, so it is escrowed in the 24h human approval queue instead of being paid out."
+          : "Amount exceeds the remaining daily limit, so it is escrowed in the 24h human approval queue instead of being paid out.";
       setVerdict({
         overall: "escalate",
         headline: "SpendQueued · 24h Escrow Queue",
@@ -524,7 +530,7 @@ export function SpendSimulatorPanel({
             title={
               gaslessAvailable
                 ? "Sign an EIP-712 SpendIntent as the demo agent; the relayer pays gas."
-                : "Gasless relay is off (set RELAYER_PRIVATE_KEY in web/.env.local)."
+                : "Hosted gasless relayer is paused on this public demo; use Direct Mode or Dry-Run."
             }
             onClick={() => setMode("gasless-agent")}
           >

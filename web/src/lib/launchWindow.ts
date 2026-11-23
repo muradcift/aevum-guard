@@ -25,21 +25,41 @@ export function launchRecentPlan(
   head: bigint,
   deployWindow = 1000n,
   recentWindow = 3000n,
+  pinnedBlocks: readonly bigint[] = [3758104n],
 ): LaunchRecentPlan {
   const ranges: BlockRange[] = [];
   const parts: string[] = [];
 
   if (deployBlock !== undefined && deployBlock > 0n && deployBlock <= head) {
-    const launchTo = head < deployBlock + deployWindow ? head : deployBlock + deployWindow;
+    const launchTo = head < deployBlock + deployWindow - 1n ? head : deployBlock + deployWindow - 1n;
     ranges.push({ from: deployBlock, to: launchTo });
     parts.push(`Launch window (${deployBlock.toString()}–${launchTo.toString()})`);
   }
 
-  const recentFrom = head > recentWindow ? head - recentWindow + 1n : 0n;
+  const recentFrom = head >= recentWindow ? head - recentWindow + 1n : 0n;
   ranges.push({ from: recentFrom, to: head });
   parts.push(`latest ${recentWindow / 1000n}k blocks`);
 
-  return { ranges, label: parts.join(" + ") };
+  // This verified top-up belongs to the public live deployment only, not fork
+  // or local networks that may use unrelated deployment histories.
+  if (deployBlock === 3685765n && head >= 3758104n) {
+    for (const block of pinnedBlocks) {
+      if (block <= head) ranges.push({ from: block, to: block });
+    }
+  }
+
+  ranges.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+  const mergedRanges: BlockRange[] = [];
+  for (const range of ranges) {
+    const previous = mergedRanges[mergedRanges.length - 1];
+    if (previous && range.from <= previous.to) {
+      if (range.to > previous.to) previous.to = range.to;
+    } else {
+      mergedRanges.push({ ...range });
+    }
+  }
+
+  return { ranges: mergedRanges, label: parts.join(" + ") };
 }
 
 export interface RawLog {
