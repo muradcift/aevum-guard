@@ -562,7 +562,7 @@ export function ApprovalAuditPanel({
                       <td className="right mono audit-tx">
                         {net.hasExplorer ? (
                           <a href={txUrl(item.txHash)} target="_blank" rel="noreferrer">
-                            {short(item.txHash)} ↗
+                            {short(item.txHash, 5, 4)} ↗
                           </a>
                         ) : (
                           short(item.txHash)

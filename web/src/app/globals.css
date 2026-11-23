@@ -215,21 +215,47 @@ table.data tr:last-child td { border-bottom: 0; }
 table.data td.right, table.data th.right { text-align: right; }
 
 /* ---------- audit log table: wrapping detail column, non-overlapping metrics ---------- */
-table.data.audit-table { table-layout: auto; min-width: 460px; }
+table.data.audit-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
 table.data.audit-table th,
-table.data.audit-table td { padding: 11px 14px; vertical-align: top; }
+table.data.audit-table td { padding: 8px 6px; vertical-align: top; }
 table.data.audit-table th { white-space: nowrap; }
+table.data.audit-table th:nth-child(1),
+table.data.audit-table td.audit-event { width: 86px; }
+table.data.audit-table th:nth-child(2),
+table.data.audit-table td.audit-detail { width: auto; }
+table.data.audit-table th:nth-child(3),
+table.data.audit-table td.audit-amount { width: 82px; }
+table.data.audit-table th:nth-child(4),
+table.data.audit-table td.audit-tx { width: 100px; }
 table.data.audit-table td.audit-detail {
   white-space: normal;
   overflow-wrap: anywhere;
-  min-width: 180px;
+  word-break: break-word;
+  line-height: 1.35;
+  font-size: 0.78rem;
 }
 table.data.audit-table td.audit-event,
 table.data.audit-table td.audit-amount,
 table.data.audit-table td.audit-tx {
   white-space: nowrap;
 }
-table.data.audit-table td.audit-event .status-pill { white-space: nowrap; }
+table.data.audit-table td.audit-amount,
+table.data.audit-table th:nth-child(3),
+table.data.audit-table td.audit-tx,
+table.data.audit-table th:nth-child(4) {
+  text-align: right;
+}
+table.data.audit-table td.audit-amount { font-size: 0.78rem; }
+table.data.audit-table td.audit-tx { font-size: 0.74rem; }
+table.data.audit-table td.audit-event .status-pill {
+  padding: 2px 7px;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
 .audit-scroll-hint { display: none; }
 .audit-table-wrap {
   /* Scroll shadows: the edge fades only while the table can still scroll. */
@@ -242,10 +268,17 @@ table.data.audit-table td.audit-event .status-pill { white-space: nowrap; }
   background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
   background-attachment: local, local, scroll, scroll;
 }
-@media (max-width: 1280px) {
-  table.data.audit-table th,
-  table.data.audit-table td { padding: 9px 12px; font-size: 12.5px; }
+@media (max-width: 440px) {
+  table.data.audit-table th:nth-child(1),
+  table.data.audit-table td.audit-event { width: 78px; }
+  table.data.audit-table th:nth-child(3),
+  table.data.audit-table td.audit-amount { width: 78px; }
+  table.data.audit-table th:nth-child(4),
+  table.data.audit-table td.audit-tx { width: 98px; font-size: 0.7rem; }
   .audit-scroll-hint { display: block; }
+}
+@media (max-width: 379px) {
+  table.data.audit-table { min-width: 360px; }
 }
 
 .progress { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
