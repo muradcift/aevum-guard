@@ -39,6 +39,7 @@ export default function DocsPage() {
           <a href="#problem">Problem &amp; Controls</a>
           <a href="#architecture">Execution Flow</a>
           <a href="#aevum">Aevum Compliance</a>
+          <a href="#mcp">AI Agent MCP Server</a>
           <a href="#quickstart">Local &amp; Fork Setup</a>
           <a href="#tokens">Get Testnet Tokens</a>
           <a href="#credits">Credits &amp; License</a>
@@ -267,8 +268,31 @@ export default function DocsPage() {
             </div>
           </section>
 
+          <section id="mcp">
+            <h2>4. AI Agent MCP Server (<code>@aevum-kit/mcp-server</code>)</h2>
+            <p>
+              Connect Claude Desktop, Cursor, Antigravity, or any MCP-compatible agent to <strong>AevumGuardVault</strong> over stdio
+              JSON-RPC 2.0. The server holds zero private keys, never signs or submits transactions, and prepares unsigned spend intents
+              only when live vault policy allows.
+            </p>
+            <div className="table-wrap docs-table-wrap" role="region" aria-label="AevumGuard MCP tools" tabIndex={0}>
+              <table className="data docs-table">
+                <tbody>
+                  <tr><th scope="row"><code>get_vault_status</code></th><td>Read live vault status and agent policy.</td></tr>
+                  <tr><th scope="row"><code>check_payee_verified</code></th><td>Check recipient against the verified payee allowlist.</td></tr>
+                  <tr><th scope="row"><code>simulate_agent_spend</code></th><td>Simulate a proposed spend against on-chain policy.</td></tr>
+                  <tr><th scope="row"><code>prepare_gasless_spend_intent</code></th><td>Prepare an unsigned EIP-712 intent when allowed.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Run <code>pnpm mcp:demo</code> for the live QDay Testnet prompt-injection defense test: rogue recipients are blocked,
+              verified in-policy spends pass instantly, and oversized spends escalate to 24-hour escrow.
+            </p>
+          </section>
+
           <section id="quickstart">
-            <h2>4. Local &amp; Fork Quickstart</h2>
+            <h2>5. Local &amp; Fork Quickstart</h2>
             <Code>{`
 # 1. Build contracts & verify zero Cancun opcodes
 cd contracts && forge build && cd ..
@@ -289,7 +313,7 @@ pnpm dev
           </section>
 
           <section id="tokens">
-            <h2>5. Get Free Aevum Test Tokens</h2>
+            <h2>6. Get Free Aevum Test Tokens</h2>
             <p>
               Join the <a href={DISCORD_URL} target="_blank" rel="noreferrer">QDay Discord</a>, verify in <code>#verify</code>, and run{" "}
               <code>/faucet &lt;your-address&gt;</code> in <code>#faucet</code> to receive <strong>1 tQDAY + 5 tUSD8</strong> with zero
@@ -299,7 +323,7 @@ pnpm dev
           </section>
 
           <section id="credits">
-            <h2>6. License &amp; Attribution</h2>
+            <h2>7. License &amp; Attribution</h2>
             <p>
               MIT Licensed. Built during the Aevum Builder Challenge #1 window (Nov 16 – Dec 11, 2026). Based on{" "}
               <strong>Aevum Starter Kit (MIT, PQA Labs)</strong> for chain configuration, chunked log scanning, and EIP-3009 helpers.

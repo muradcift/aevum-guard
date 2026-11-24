@@ -1,0 +1,21 @@
+{
+  "name": "@aevum-kit/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "demo": "tsx src/demo-prompt-injection.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aevum-kit/aevum": "workspace:*",
+    "viem": "2.57.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}

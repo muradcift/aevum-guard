@@ -1,5 +1,5 @@
 {
-  "name": "aevum-starter-kit",
+  "name": "aevum-guard",
   "version": "0.1.0",
   "private": true,
   "description": "Starter kit for building on QDay Aevum testnet: Foundry contracts, a Next.js app and TypeScript examples.",
@@ -13,6 +13,7 @@
     "build": "pnpm --filter web build",
     "typecheck": "pnpm -r typecheck",
     "example": "pnpm --filter examples run",
+    "mcp:demo": "pnpm --filter @aevum-kit/mcp-server demo",
     "check:shanghai": "node tools/check-shanghai.mjs contracts/out"
   },
   "pnpm": {

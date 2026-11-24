@@ -4,6 +4,8 @@
 
 Built for **Aevum Builder Challenge #1 (QDay)** (`Native AI Assistants` · `Confirmation of Payee` · `Decentralized Payments`).
 
+**Key capability:** Any MCP-compatible AI agent can query and simulate policy-guarded spends through the strictly non-custodial [`@aevum-kit/mcp-server`](#ai-agent-mcp-server-aevum-kitmcp-server)—no private keys enter the MCP server.
+
 ## Live Demo & Submission Links
 
 - **Live Web App (Vercel):** https://aevum-guard.vercel.app/
@@ -346,6 +348,41 @@ Written as an honest engineering boundary, not a disclaimer. Each item states wh
 | **Q2 2027 — Scale** | Multi-instance rate-limit state, per-agent gas budgets, paymaster abstraction, and additional Aevum-ecosystem stablecoins behind the same policy engine. |
 
 Each phase preserves the two load-bearing invariants: **the contract enforces every limit**, and **the owner can always recover funds**.
+
+---
+
+## AI Agent MCP Server (`@aevum-kit/mcp-server`)
+
+Any MCP-compatible AI agent—including Claude Desktop, Cursor, or Antigravity—can connect to `AevumGuardVault` over stdio using JSON-RPC 2.0. The server reads live on-chain state and prepares unsigned EIP-712 intents only when policy allows; it contains **zero private keys**, never signs, and never submits transactions. This is strictly non-custodial: the vault contract enforces the spend policy.
+
+The four live on-chain tools are:
+
+- `get_vault_status` — read vault state and agent policy.
+- `check_payee_verified` — check a recipient against the Confirmation of Payee allowlist.
+- `simulate_agent_spend` — simulate a proposed spend against live policy.
+- `prepare_gasless_spend_intent` — prepare an unsigned EIP-712 intent when allowed.
+
+Run the one-command live adversarial prompt-injection demo:
+
+```sh
+pnpm mcp:demo
+```
+
+It verifies four assertions against QDay Testnet: reads live Vault #1; blocks a prompt-injected rogue `0x...dEaD` recipient with `PayeeNotAllowlisted` and does **not** issue an EIP-712 intent; returns `PASS_INSTANT` for a verified vendor spend of `0.40 tUSD8` with the live nonce; and routes an oversized `0.85 tUSD8` spend to `ESCALATE_24H_ESCROW`. The demo is read-only and does not create signatures or transactions.
+
+Configure Claude Desktop or Cursor with the repository path set to your local checkout:
+
+```json
+{
+  "mcpServers": {
+    "aevumguard": {
+      "command": "pnpm",
+      "args": ["--filter", "@aevum-kit/mcp-server", "start"],
+      "cwd": "D:/path/to/aevum-guard"
+    }
+  }
+}
+```
 
 ---
 
