@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import { stdin, stdout, stderr } from "node:process";
+import { runAdversarialBenchmark, verifyAuditReceipt } from "@aevum-kit/aevum";
 import {
   checkPayeeVerified,
   getVaultStatus,
@@ -71,6 +72,27 @@ const tools = [
       additionalProperties: false,
     },
   },
+  {
+    name: "run_security_benchmark",
+    description: "Run the 32-scenario deterministic AevumGuard adversarial prompt-injection and policy enforcement benchmark suite and return a cryptographically signed, hash-chained audit receipt.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        includeReceipt: { type: "boolean", description: "Include full signed AevumAuditReceipt JSON in response (default true)" },
+      },
+    },
+  },
+  {
+    name: "verify_audit_receipt",
+    description: "Independently verify a signed AevumGuard hash-chained audit receipt (recomputes entry hash chain, chainRoot, payloadHash, receiptId, and recovers EIP-712 secp256k1 signer).",
+    inputSchema: {
+      type: "object",
+      required: ["receipt"],
+      properties: {
+        receipt: { type: "object", description: "AevumAuditReceipt JSON object to verify" },
+      },
+    },
+  },
 ];
 
 function objectArgs(value: unknown): ToolArguments {
@@ -114,6 +136,48 @@ async function callTool(name: string, rawArgs: unknown): Promise<unknown> {
         vaultId: stringArg(args, "vaultId"), agent: stringArg(args, "agent"),
       });
     }
+    case "run_security_benchmark": {
+      const report = await runAdversarialBenchmark();
+      const categories: Record<string, { total: number; passed: number; failed: number }> = {};
+      for (const result of report.results) {
+        const counts = categories[result.category] ?? { total: 0, passed: 0, failed: 0 };
+        counts.total += 1;
+        if (result.passed) counts.passed += 1;
+        else counts.failed += 1;
+        categories[result.category] = counts;
+      }
+      const response: Record<string, unknown> = {
+        suiteVersion: report.suiteVersion,
+        ranAt: report.ranAt,
+        chainId: report.chainId,
+        verifyingContract: report.verifyingContract,
+        total: report.total,
+        passed: report.passed,
+        failed: report.failed,
+        passRatePct: report.passRatePct,
+        countsByOutcome: report.countsByOutcome,
+        durationMs: report.durationMs,
+        categories,
+        failedScenarios: report.results
+          .filter((result) => !result.passed)
+          .map((result) => ({
+            id: result.id,
+            category: result.category,
+            title: result.title,
+            expectedVerdict: result.expectedVerdict,
+            actualVerdict: result.actualVerdict,
+            expectedError: result.expectedError,
+            actualError: result.actualError,
+            detail: result.detail,
+          })),
+        receiptVerification: report.receiptVerification,
+      };
+      if (args.includeReceipt !== false) response.receipt = report.receipt;
+      return response;
+    }
+    case "verify_audit_receipt":
+      if (args.receipt === undefined) throw new Error("receipt is required.");
+      return verifyAuditReceipt(args.receipt);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

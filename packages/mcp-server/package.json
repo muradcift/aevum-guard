@@ -7,6 +7,8 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "demo": "tsx src/demo-prompt-injection.ts",
+    "benchmark": "node --import tsx src/run-benchmark.ts",
+    "verify:receipt": "node --import tsx src/verify-receipt.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

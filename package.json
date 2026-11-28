@@ -13,6 +13,8 @@
     "build": "pnpm --filter web build",
     "typecheck": "pnpm -r typecheck",
     "example": "pnpm --filter examples run",
+    "benchmark": "pnpm --filter @aevum-kit/mcp-server benchmark",
+    "verify:receipt": "pnpm --filter @aevum-kit/mcp-server verify:receipt",
     "mcp:demo": "pnpm --filter @aevum-kit/mcp-server demo",
     "check:shanghai": "node tools/check-shanghai.mjs contracts/out"
   },

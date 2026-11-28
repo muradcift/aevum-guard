@@ -5,6 +5,7 @@ On-chain `tUSD8` spending guardrails and a non-custodial MCP server for autonomo
 | Resource | Link |
 |---|---|
 | Live Control Center (no wallet required) | https://aevum-guard.vercel.app/ |
+| Security Benchmark & Verifier | https://aevum-guard.vercel.app/benchmark |
 | Architecture & Docs | https://aevum-guard.vercel.app/docs |
 | Demo Video (1:14) | https://www.youtube.com/watch?v=GYDz2hm_MUY |
 | Vault contract (`AevumGuardVault`) | [`0x4E5Ed4Dc7E5e525f4D77c2cC2749870De9f6851e`](https://explorer-test.qday.info/address/0x4E5Ed4Dc7E5e525f4D77c2cC2749870De9f6851e), block `3685765` |
@@ -52,9 +53,46 @@ Gasless paths:
 - Deposits: `tUSD8` EIP-3009 `receiveWithAuthorization` with a vault-bound nonce, so a signature cannot be replayed against another vault or contract.
 - Agent spends: off-chain EIP-712 `SpendIntent` signed by the agent, submitted through `/api/relay-spend` or directly to `executeSpendWithSignature`. The agent needs no `tQDAY`.
 
+## 32-Scenario Adversarial Benchmark & Verifiable Audit Receipts
+
+AevumGuard ships a deterministic 32-scenario adversarial benchmark (`aevum-adversarial-benchmark/v1`) covering the policy engine, Confirmation of Payee allowlist, and EIP-712 signature enforcement across 7 attack categories. Every run executes 32/32 assertions in sub-second time (~215ms locally; no mocks or RPC required) and seals the outcome into a hash-chained, `EIP-712-secp256k1` signed `aevum-audit-receipt/v1` JSON receipt.
+
+| Attack Category | Scenarios |
+|---|---|
+| Prompt Injection & Rogue Payee | `5 / 5` |
+| Cap Overflow & 24h Escrow | `5 / 5` |
+| Split-Tx Salami Draining | `4 / 4` |
+| UTC Rollover & Mandate Lifecycle | `4 / 4` |
+| Emergency Controls & Solvency | `4 / 4` |
+| EIP-712 Signature & Replay Attacks | `6 / 6` |
+| Confirmation of Payee & Receipt Integrity | `4 / 4` |
+
+Outcome distribution: `32/32` passed (`100%`) — `24` blocked, `4` escalated to 24h escrow, `3` instant pass, and `1` tamper-detection check.
+
+Single-command reproducibility:
+
+```sh
+# Deterministic offline 32/32 CI-verified suite
+pnpm benchmark
+
+# Export signed aevum-audit-receipt/v1 JSON and run disk round-trip verification
+pnpm benchmark -- --out receipt.json
+
+# Add read-only live QDay Testnet Vault #1 cross-check
+pnpm benchmark -- --live
+
+# Independent CLI verifier (catches any 1-byte payload or signature tamper)
+pnpm verify:receipt receipt.json
+```
+
+Interactive browser UI:
+
+- Run the full 32-scenario suite and test 1-byte tamper detection in-browser at [`/benchmark`](https://aevum-guard.vercel.app/benchmark).
+- Export signed `aevum-audit-receipt/v1` receipts directly from the on-chain audit log on [`/`](https://aevum-guard.vercel.app/).
+
 ## AI Agent MCP Server (`@aevum-kit/mcp-server`)
 
-`packages/mcp-server` is a JSON-RPC 2.0 stdio MCP server. It reads live vault state and returns unsigned EIP-712 intent data only when policy allows. It holds zero private keys, never signs, and never submits transactions.
+`packages/mcp-server` is a JSON-RPC 2.0 stdio MCP server exposing 6 tools. It reads live vault state, returns unsigned EIP-712 intent data only when policy allows, runs the 32-scenario security benchmark, and verifies signed audit receipts. It holds zero vault or agent spend keys, never signs spend intents, and never submits transactions.
 
 | Tool | Purpose |
 |---|---|
@@ -62,6 +100,8 @@ Gasless paths:
 | `check_payee_verified` | Check a recipient against the Confirmation of Payee allowlist |
 | `simulate_agent_spend` | Simulate a spend against live limits and return the decision |
 | `prepare_gasless_spend_intent` | Build an unsigned EIP-712 `SpendIntent` when the spend is allowed |
+| `run_security_benchmark` | Run the 32-scenario adversarial benchmark and return a signed `aevum-audit-receipt/v1` receipt |
+| `verify_audit_receipt` | Independently verify an `AevumAuditReceipt` JSON object (hash chain, `chainRoot`, `payloadHash`, `receiptId`, and `EIP-712-secp256k1` signer) |
 
 One command runs four live assertions against QDay Testnet:
 
@@ -139,6 +179,11 @@ cd contracts && forge test --no-match-path "test/fork/*" -vv && cd ..
 
 # Live fork tests against QDay Aevum
 cd contracts && forge test --match-contract AevumGuardForkTest --fork-url https://rpc-test.qday.info -vv && cd ..
+
+# 32-scenario adversarial benchmark + signed receipt export & verification
+pnpm benchmark
+pnpm benchmark -- --out receipt.json
+pnpm verify:receipt receipt.json
 
 # Live MCP demo (4 assertions)
 pnpm mcp:demo

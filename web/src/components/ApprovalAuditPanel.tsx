@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { getAbiItem, type AbiEvent, type Address, type Hex, type PublicClient } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { useAccount, useConfig, usePublicClient, useReadContract, useReadContracts } from "wagmi";
 import { simulateContract, waitForTransactionReceipt, writeContract } from "wagmi/actions";
-import { aevumGuardAbi, getLogsChunked, MAX_LOG_RANGE, txUrl } from "@aevum-kit/aevum";
+import { aevumGuardAbi, createAuditReceipt, getLogsChunked, MAX_LOG_RANGE, txUrl } from "@aevum-kit/aevum";
+import { loadOrCreateDemoAgent } from "@/lib/demoAgent";
 import { explain } from "@/lib/errors";
 import { formatExpiry, formatToken, short } from "@/lib/format";
 import { dedupeSortLogs, launchRecentPlan, type RawLog } from "@/lib/launchWindow";
@@ -24,6 +26,18 @@ function reasonLabel(code: number): string {
   if (code === 3) return "Over per-tx & daily limit";
   if (code === 2) return "Over daily limit";
   return "Over per-tx limit";
+}
+
+function downloadJsonFile(filename: string, data: unknown): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 interface AuditEntry {
@@ -64,6 +78,8 @@ export function ApprovalAuditPanel({
 
   const [busyReq, setBusyReq] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
+  const [exportingReceipt, setExportingReceipt] = useState(false);
+  const [receiptNotice, setReceiptNotice] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
   // Window mode: bigint string = "last N blocks", "launch+recent" = deployBlock launch window + latest 3k.
   const [windowMode, setWindowMode] = useState<string>("launch+recent");
   const [progress, setProgress] = useState(0);
@@ -345,6 +361,49 @@ export function ApprovalAuditPanel({
     }
   }
 
+  async function exportAuditReceipt(entries: AuditEntry[]) {
+    if (entries.length === 0) return;
+    setExportingReceipt(true);
+    setReceiptNotice(null);
+    try {
+      const signer = loadOrCreateDemoAgent() ?? privateKeyToAccount(generatePrivateKey());
+      const receipt = await createAuditReceipt({
+        kind: "ONCHAIN_AUDIT_SNAPSHOT",
+        chainId: net.chain.id,
+        verifyingContract: vaultAddress,
+        vaultId: vaultId.toString(),
+        summary: { eventCount: entries.length, network: net.label, vaultId: vaultId.toString() },
+        entries: entries.map((item, index) => ({
+          seq: index + 1,
+          id: `${item.txHash}:${item.logIndex}`,
+          category: "OnChainEvent",
+          action: item.kind,
+          outcome: "CONFIRMED",
+          detail: item.detail,
+          metadata: {
+            blockNumber: item.blockNumber.toString(),
+            txHash: item.txHash,
+            logIndex: item.logIndex,
+            amount: item.amount !== undefined ? item.amount.toString() : "0",
+          },
+        })),
+        signerAccount: signer,
+      });
+      downloadJsonFile(`aevumguard-vault-${vaultId}-audit-receipt.json`, receipt);
+      setReceiptNotice({
+        tone: "good",
+        text: `Signed audit receipt exported (${entries.length} events) — verify anytime on /benchmark or via pnpm verify:receipt`,
+      });
+    } catch (e) {
+      setReceiptNotice({ tone: "bad", text: `Could not export signed receipt: ${explain(e)}` });
+    } finally {
+      setExportingReceipt(false);
+    }
+  }
+
+  const displayedAudit =
+    auditQuery.data && auditQuery.data.windowMode === activeWindowMode ? auditQuery.data.entries : [];
+
   return (
     <section className="card stack">
       <div className="card-head">
@@ -478,8 +537,25 @@ export function ApprovalAuditPanel({
                 {`${w / 1000}k blocks`}
               </button>
             ))}
+            {displayedAudit.length > 0 && (
+              <button
+                type="button"
+                className="btn small secondary"
+                disabled={exportingReceipt}
+                onClick={() => void exportAuditReceipt(displayedAudit)}
+                title="Sign the displayed audit rows with the ephemeral demo key and download an AevumAuditReceipt JSON"
+              >
+                {exportingReceipt ? "Signing…" : "Export Signed Receipt (.json)"}
+              </button>
+            )}
           </div>
         </div>
+
+        {receiptNotice && (
+          <div className={`notice ${receiptNotice.tone}`} role="status">
+            <span>{receiptNotice.text}</span>
+          </div>
+        )}
 
         {scanning && auditQuery.isFetching && (
           <div>

@@ -79,7 +79,19 @@ async function main() {
   assert(initialized?.serverInfo?.name === "aevumguard-mcp", "MCP initialize response identifies server");
   child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
   const listed = await request("tools/list");
-  assert(Array.isArray(listed?.tools) && listed.tools.length === 4, "server publishes all four tools");
+  const expectedTools = [
+    "get_vault_status",
+    "check_payee_verified",
+    "simulate_agent_spend",
+    "prepare_gasless_spend_intent",
+    "run_security_benchmark",
+    "verify_audit_receipt",
+  ];
+  assert(Array.isArray(listed?.tools) && listed.tools.length === expectedTools.length, "server publishes all six tools");
+  const listedNames = new Set((listed.tools as Array<{ name?: unknown }>).map((tool) => tool?.name));
+  for (const toolName of expectedTools) {
+    assert(listedNames.has(toolName), `server publishes tool ${toolName}`);
+  }
   pass("MCP initialize + tools/list handshake");
 
   process.stdout.write("[1/4] Live vault status\n");

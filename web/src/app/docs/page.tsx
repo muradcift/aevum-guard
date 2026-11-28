@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { links, TUSD8_ADDRESS } from "@aevum-kit/aevum";
 import { GitHubIcon } from "@/components/Icons";
 import { repoUrl } from "@/lib/env";
@@ -40,6 +41,7 @@ export default function DocsPage() {
           <a href="#architecture">Execution Flow</a>
           <a href="#aevum">Aevum Compliance</a>
           <a href="#mcp">AI Agent MCP Server</a>
+          <a href="#benchmark">Benchmark &amp; Receipts</a>
           <a href="#quickstart">Local &amp; Fork Setup</a>
           <a href="#tokens">Get Testnet Tokens</a>
           <a href="#credits">Credits &amp; License</a>
@@ -272,8 +274,8 @@ export default function DocsPage() {
             <h2>4. AI Agent MCP Server (<code>@aevum-kit/mcp-server</code>)</h2>
             <p>
               Connect Claude Desktop, Cursor, Antigravity, or any MCP-compatible agent to <strong>AevumGuardVault</strong> over stdio
-              JSON-RPC 2.0. The server holds zero private keys, never signs or submits transactions, and prepares unsigned spend intents
-              only when live vault policy allows.
+              JSON-RPC 2.0. The server exposes 6 tools, holds zero private keys, never signs or submits transactions, and prepares
+              unsigned spend intents only when live vault policy allows.
             </p>
             <div className="table-wrap docs-table-wrap" role="region" aria-label="AevumGuard MCP tools" tabIndex={0}>
               <table className="data docs-table">
@@ -282,6 +284,8 @@ export default function DocsPage() {
                   <tr><th scope="row"><code>check_payee_verified</code></th><td>Check recipient against the verified payee allowlist.</td></tr>
                   <tr><th scope="row"><code>simulate_agent_spend</code></th><td>Simulate a proposed spend against on-chain policy.</td></tr>
                   <tr><th scope="row"><code>prepare_gasless_spend_intent</code></th><td>Prepare an unsigned EIP-712 intent when allowed.</td></tr>
+                  <tr><th scope="row"><code>run_security_benchmark</code></th><td>Run the 32-scenario adversarial policy benchmark and return a signed, hash-chained audit receipt.</td></tr>
+                  <tr><th scope="row"><code>verify_audit_receipt</code></th><td>Independently verify an <code>AevumAuditReceipt</code> hash chain, commitments, and EIP-712 signer.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -291,8 +295,41 @@ export default function DocsPage() {
             </p>
           </section>
 
+          <section id="benchmark">
+            <h2>5. Adversarial Benchmark &amp; Verifiable Audit Receipts</h2>
+            <p>
+              The <Link href="/benchmark">Security Benchmark</Link> (<code>/benchmark</code>) executes 32 deterministic adversarial
+              scenarios across 7 attack categories (prompt injection, cap overflow &amp; 24h escrow, split-tx salami draining, UTC rollover
+              &amp; mandate lifecycle, emergency pause &amp; solvency, EIP-712 replay/signature forgery, and CoP &amp; receipt integrity)
+              against AevumGuardVault&apos;s exact policy engine — directly in the browser with no wallet or RPC required, or from the CLI
+              via <code>pnpm benchmark</code>.
+            </p>
+            <ul>
+              <li>
+                <strong>Tamper-Evident Hash Chain + EIP-712 Attestation:</strong> Every benchmark report and Control Center audit log export
+                is sealed into an <code>aevum-audit-receipt/v1</code> JSON where entries link via{" "}
+                <code>prevHash → entryHash</code> (<code>keccak256</code>), commit to <code>chainRoot</code>, <code>payloadHash</code>,
+                and <code>receiptId</code>, and carry an <code>EIP-712-secp256k1</code> signature.
+              </li>
+              <li>
+                <strong>Independent Verification:</strong> Export a signed receipt from the Control Center or{" "}
+                <code>pnpm benchmark --out receipt.json</code>, then verify every cryptographic check in the{" "}
+                <Link href="/benchmark">Independent Receipt Verifier</Link> (including 1-byte tamper simulation) or via{" "}
+                <code>pnpm verify:receipt receipt.json</code>.
+              </li>
+            </ul>
+            <Code>{`
+# Run the 32-scenario adversarial benchmark and export a signed receipt
+pnpm benchmark
+pnpm benchmark --out receipt.json
+
+# Verify any exported receipt (benchmark or Control Center audit snapshot)
+pnpm verify:receipt receipt.json
+            `}</Code>
+          </section>
+
           <section id="quickstart">
-            <h2>5. Local &amp; Fork Quickstart</h2>
+            <h2>6. Local &amp; Fork Quickstart</h2>
             <Code>{`
 # 1. Build contracts & verify zero Cancun opcodes
 cd contracts && forge build && cd ..
@@ -313,7 +350,7 @@ pnpm dev
           </section>
 
           <section id="tokens">
-            <h2>6. Get Free Aevum Test Tokens</h2>
+            <h2>7. Get Free Aevum Test Tokens</h2>
             <p>
               Join the <a href={DISCORD_URL} target="_blank" rel="noreferrer">QDay Discord</a>, verify in <code>#verify</code>, and run{" "}
               <code>/faucet &lt;your-address&gt;</code> in <code>#faucet</code> to receive <strong>1 tQDAY + 5 tUSD8</strong> with zero
@@ -323,7 +360,7 @@ pnpm dev
           </section>
 
           <section id="credits">
-            <h2>7. License &amp; Attribution</h2>
+            <h2>8. License &amp; Attribution</h2>
             <p>
               MIT Licensed. Built during the Aevum Builder Challenge #1 window (Nov 16 – Dec 11, 2026). Based on{" "}
               <strong>Aevum Starter Kit (MIT, PQA Labs)</strong> for chain configuration, chunked log scanning, and EIP-3009 helpers.
